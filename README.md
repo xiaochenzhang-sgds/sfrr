@@ -1,4 +1,4 @@
-# ⚡ RuleOps — Salesforce Recommendation Rule Manager
+# ⚡ Digital Sales SF Recommendation Rule Optimizer
 
 > *Because manually hunting through Salesforce rules should be illegal* 🚫
 
