@@ -2,7 +2,7 @@
 
 > *Because manually hunting through Salesforce rules should be illegal* 🚫
 
-A slick, browser-based tool built for the **Singapore Sales Ops team** to manage recommendation rules without drowning in Salesforce. Upload a CSV, make your changes, export, done. ✅
+A slick, browser-based tool built for **US** to manage recommendation rules without drowning in Salesforce. Upload a CSV, make your changes, export, done. ✅
 
 ---
 
@@ -10,7 +10,7 @@ A slick, browser-based tool built for the **Singapore Sales Ops team** to manage
 
 👉 **[Open RuleOps](https://xiaochenzhang-sgds.github.io/sfrr)**
 
-> Works best on Chrome or Edge. No login. No install. Just vibes. ✨
+> Works best on Chrome. No login. No install. Just vibes. ✨
 
 ---
 
