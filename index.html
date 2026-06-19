@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RuleOps – Recommendation Rule Manager</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
+<style>
+:root {
+  --color-background-primary:#ffffff;--color-background-secondary:#f7f8fa;--color-background-tertiary:#f0f2f5;
+  --color-background-info:#e6f1fb;--color-background-success:#eaf3de;--color-background-warning:#faeeda;--color-background-danger:#fcebeb;
+  --color-text-primary:#1a1f2e;--color-text-secondary:#6b7280;
+  --color-text-info:#185fa5;--color-text-success:#3b6d11;--color-text-warning:#854f0b;--color-text-danger:#a32d2d;
+  --color-border-tertiary:rgba(0,0,0,0.1);--color-border-secondary:rgba(0,0,0,0.18);--color-border-primary:rgba(0,0,0,0.3);
+  --color-border-info:#85b7eb;--color-border-success:#97c459;--color-border-warning:#ef9f27;--color-border-danger:#e24b4a;
+  --border-radius-md:8px;--border-radius-lg:12px;
+  --font-sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--font-mono:'SFMono-Regular',Consolas,Menlo,monospace;
+}
+@media(prefers-color-scheme:dark){:root{
+  --color-background-primary:#1e2029;--color-background-secondary:#252830;--color-background-tertiary:#16181f;
+  --color-background-info:#0c2a45;--color-background-success:#1a3d0e;--color-background-warning:#3d2a0a;--color-background-danger:#3d1212;
+  --color-text-primary:#f0f2f5;--color-text-secondary:#9ba3af;
+  --color-text-info:#85b7eb;--color-text-success:#97c459;--color-text-warning:#ef9f27;--color-text-danger:#f09595;
+  --color-border-tertiary:rgba(255,255,255,0.08);--color-border-secondary:rgba(255,255,255,0.15);--color-border-primary:rgba(255,255,255,0.25);
+  --color-border-info:#378add;--color-border-success:#639922;--color-border-warning:#ba7517;--color-border-danger:#a32d2d;
+}}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;font-family:var(--font-sans);background:var(--color-background-tertiary);color:var(--color-text-primary);}
+input[type=checkbox]{accent-color:#D4537E;width:13px;height:13px;}
+input[type=text],input[type=search],input[type=file]{outline:none;}
+button{cursor:pointer;font-family:inherit;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--color-border-secondary);border-radius:4px;}
+</style>
+</head>
+<body>
+<div id="app" style="height:100vh;display:flex;flex-direction:column;position:relative;"></div>
+<input type="file" id="rulesCSVInput" accept=".csv" style="display:none" onchange="handleRulesUpload(event)">
+<input type="file" id="agentsCSVInput" accept=".csv" style="display:none" onchange="handleAgentsUpload(event)">
+<script>
+// ================================================================
+// RuleOps v1.1 — Salesforce Recommendation Rule Manager
+// Store in GitHub, host on GitHub Pages / Netlify / any static host
+// Data auto-saves to localStorage; upload CSVs anytime to refresh
+// ================================================================
+
+const PINK='#D4537E',PINKL='#FBEAF0';
+const LS=['Self Sign Up','Inbound','Own Research','Automated LeadGen','Import'];
+const LOCS=['Marina Bay','Promenade','Clarke Quay','Chinatown','Tanjong Pagar','Telok Blangah','Pasir Panjang','Clementi','Buona Vista','Queenstown','Tiong Bahru','Bugis/City Hall','Arab Street','Farrer Park','Newton','River Valley','Dempsey','Tanglin','Bukit Timah','Holland Village','Novena','Toa Payoh','Kallang/Boon Keng','MacPherson','Paya Lebar','Mountbatten','Katong','Upper East Coast','Bedok','Bedok Reservoir','Simei','Changi Village','Pasir Ris East','Tampines','Hougang','Sengkang','Serangoon','Ang Mo Kio','Bishan','Beauty World','Jurong East','Jurong South','Pioneer','Tuas','Jurong West','Tengah','Bukit Batok','Bukit Panjang','Choa Chu Kang','Lim Chu Kang','Sungei Kadut','Woodlands','Sembawang','Yishun','Singapore Zoo','Jalan Kayu','Changi Airport','Punggol'];
+const BT=['Regular Restaurant','Home Based Kitchen','Street Food'];
+const VG=['AAA','AA','A','B','C','D','Ungraded'];
+const OPS=['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion','IncompleteSSULeadAutoAssignment','OpportunityAutoAssignmentFromCase','SSUAccountAutoAssignment'];
+const VERTICALS=['Restaurant','Shop'];
+const STATE_VERSION='1.1';
+
+// ---- DEFAULT AGENT DATA ----
+const DEFAULT_AGENTS=[
+  {id:'005bO00000QSamM',name:'Aaron Ong',email:'aaron.ong@foodpanda.sg',alias:'YOng',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO000002sQnc',name:'Akshay Sabnani',email:'akshay.sabnani@foodpanda.sg',alias:'ASabn',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'0051r00000APyrq',name:'Allan Andrew Perez Gacayan',email:'a.gacayan@foodpanda.sg',alias:'agacaya',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'0051r00000APyZA',name:'Helmekhan Mohd Jamil',email:'h.jamil@foodpanda.sg',alias:'hjamil',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000QSVRq',name:'Kai Quek',email:'kai.quek@foodpanda.sg',alias:'KQuek',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO000004MNAC',name:'Maggie Lim',email:'maggie.lim@foodpanda.sg',alias:'MLim',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'0056900000BKiFq',name:'Michelle Chan',email:'michelle.chan@foodpanda.sg',alias:'MChan',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000RcPIr',name:'Skylar Puah',email:'skylar.puah@foodpanda.sg',alias:'SPuah',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000RcXGM',name:'Sonia Ravindran',email:'sonia.ravindran@foodpanda.sg',alias:'SRavi',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'0051r00000APyrs',name:'Teck Guan (Henry) Tan',email:'h.tan@foodpanda.sg',alias:'htan',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO000004m0Zi',name:'Wei En Khaw',email:'wei.khaw@foodpanda.sg',alias:'WKhaw',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'0056900000DUyuH',name:'Willie Chia',email:'willie.chia@foodpanda.sg',alias:'WChia',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000TNsbi',name:'Vanessa Ong',email:'vanessa.ong@foodpanda.sg',alias:'VOng',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000UnWdN',name:'Aloysias Chuah',email:'aloysias.chuah@foodpanda.sg',alias:'YChua',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000UnWez',name:'Sharnthinie Mathen',email:'sharnthinie.mathen@foodpanda.sg',alias:'SA Th',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000UnWgb',name:'Vishal Francis',email:'vishal.francis@foodpanda.sg',alias:'VDeva',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'005bO00000UpEPR',name:'Marcus Ho',email:'marcus.ho@foodpanda.sg',alias:'HJian',role:'BDM',sources:['Own Research','Automated LeadGen','Import'],bizTypes:BT},
+  {id:'0051r00000APygxAAD',name:'Nurul Idreen Zulkifli',email:'nurul.zulkifli.3@foodpanda.com',alias:'Yeen',role:'Telesales Mgr',sources:['Self Sign Up'],bizTypes:BT},
+  {id:'005bO000003wOhrQAE',name:'Fio-Na Fong',email:'fio.fong@foodpanda.com',alias:'Fiona',role:'Telesales',sources:['Self Sign Up','Inbound'],bizTypes:BT},
+  {id:'005bO00000RfGNtQAN',name:'GimRen Lein',email:'gimren.lein@foodpanda.com',alias:'Kimbert',role:'Telesales',sources:['Self Sign Up','Inbound'],bizTypes:BT},
+  {id:'0056900000Bc2JIAAZ',name:'SeeTheng Ho',email:'ho.see@foodpanda.com',alias:'Obee',role:'Telesales',sources:['Self Sign Up','Inbound'],bizTypes:BT},
+  {id:'0056900000CG73TAAT',name:'Muhammad Qhaireel Isha Ismail',email:'muhammad.ismail.2@foodpanda.com',alias:'MIsma',role:'Digital Sales',sources:['Self Sign Up'],bizTypes:BT},
+  {id:'0056900000CwVGvAAN',name:'Nabila Ainzam Zamani',email:'nabila.zamani@foodpanda.com',alias:'NZama',role:'Digital Sales',sources:['Self Sign Up'],bizTypes:BT},
+  {id:'005bO00000Ghgu3',name:'Joyce Tham',email:'joyce.tham@foodpanda.sg',alias:'YTham',role:'Digital Sales',sources:[],bizTypes:[]},
+  {id:'0056900000BJprk',name:'Xiaochen Zhang',email:'xiaochen.zhang@foodpanda.sg',alias:'XZhan',role:'Digital Sales',sources:[],bizTypes:[]},
+];
+
+// ---- DEFAULT RULE DATA ----
+function mkA(aid,an,ra,rr){return{agentId:aid,agentName:an,raId:ra,rrId:rr,isNew:false};}
+function mkF(an,ra,rr){return{agentId:null,agentName:an,raId:ra,rrId:rr,isNew:false,isFormer:true};}
+function mkR(id,src,bt2,locs,gr,ops,asn,vert){return{id,sources:src,bizTypes:bt2,localities:locs,grades:gr,ops,vertical:vert||[],assignments:asn};}
+const DEFAULT_RULES=[
+  mkR('R-0005633',['Automated LeadGen','Import','Own Research'],BT,['River Valley','Dempsey','Tanglin','Bukit Timah','Holland Village','Katong','Upper East Coast','Bukit Batok','Bukit Panjang'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('0051r00000APyrq','Allan Andrew Perez Gacayan','RA--0019913','a3k69000002VLrw')],['Restaurant']),
+  mkR('R-0005635',['Automated LeadGen','Import','Own Research'],BT,['Bugis/City Hall','Arab Street','Lim Chu Kang','Sungei Kadut','Woodlands','Sembawang','Yishun','Singapore Zoo','Paya Lebar'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('0051r00000APyZA','Helmekhan Mohd Jamil','RA--0019915','a3k69000002VLry')],['Restaurant']),
+  mkR('R-0017734',['Self Sign Up'],BT,[],[],['AccountRecycling','OpportunityReassignment','LeadConversion','NewLeadConversion'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0052312','a3kbO000000W09l'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0054969','a3kbO000000cYyL')],['Restaurant']),
+  mkR('R-0017735',['Inbound','Self Sign Up'],['Street Food'],['Farrer Park','Jurong East','Jurong South','Pioneer','Tuas','Jurong West'],[],[],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0052318','a3kbO000000W0JR'),mkA('0056900000Bc2JIAAZ','SeeTheng Ho','RA--0052319','a3kbO000000W0L3')],['Restaurant']),
+  mkR('R-0028301',['Self Sign Up'],[],[],[],['IncompleteSSULeadAutoAssignment'],[mkA('0056900000CwVGvAAN','Nabila Ainzam Zamani','RA--0055230','a3kbO000000dKRt'),mkA('0056900000CG73TAAT','Muhammad Qhaireel Isha Ismail','RA--0055231','a3kbO000000dKRu')],[]),
+  mkR('R-0028302',['Self Sign Up'],[],[],[],['OpportunityAutoAssignmentFromCase'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0055236','a3kbO000000dKRz'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0055237','a3kbO000000dKS0')],[]),
+  mkR('R-0028304',['Self Sign Up'],[],[],[],['SSUAccountAutoAssignment'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0055239','a3kbO000000dKS2'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0055240','a3kbO000000dKS3')],[]),
+  mkR('R-0028342',['Automated LeadGen','Import','Own Research'],BT,['Newton','Novena','Hougang','Sengkang','Serangoon','Choa Chu Kang','Jalan Kayu','Punggol'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('0056900000BKiFq','Michelle Chan','RA--0029682','a3kbO00000005ED')],['Restaurant']),
+  mkR('R-0029196',['Automated LeadGen','Import','Own Research'],BT,['Buona Vista','Farrer Park','Newton','Simei','Changi Village','Pasir Ris East','Tampines'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO000002sQnc','Akshay Sabnani','RA--0031977','a3kbO0000001Wqf')],['Restaurant']),
+  mkR('R-0030623',['Automated LeadGen','Import','Own Research'],BT,['Tanjong Pagar','Telok Blangah','Pasir Panjang','Toa Payoh','Ang Mo Kio','Bishan'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO000004MNAC','Maggie Lim','RA--0040645','a3kbO0000002iD3')],['Restaurant']),
+  mkR('R-0030624',['Automated LeadGen','Import','Own Research'],BT,['Clementi','Beauty World','Jurong East','Jurong South','Pioneer','Tuas','Jurong West'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('0056900000DUyuH','Willie Chia','RA--0040646','a3kbO0000002iEf')],['Restaurant']),
+  mkR('R-0030710',['Automated LeadGen','Import','Own Research'],BT,['Marina Bay','Promenade','Clarke Quay','Chinatown','Queenstown','Tiong Bahru'],['AAA','AA','A','B'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO000004m0Zi','Wei En Khaw','RA--0040768','a3kbO0000003KIL')],['Restaurant']),
+  mkR('R-0030920',['Automated LeadGen','Import','Own Research'],BT,[],['C','D','Ungraded'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkF('Jonathan Cheok Hoe Yong','RA--0042354','a3kbO0000006qtZ')],['Restaurant']),
+  mkR('R-0030921',['Inbound','Self Sign Up'],BT,[],[],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0052316','a3kbO000000W0GD'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0054968','a3kbO000000cYwj')],['Restaurant']),
+  mkR('R-0034146',['Automated LeadGen','Import','Own Research'],BT,['Tanjong Pagar','Arab Street','Changi Village','Pasir Ris East','Tampines','Hougang','Sengkang','Changi Airport'],['C','D','Ungraded'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO00000QSamM','Aaron Ong','RA--0054910','a3kbO000000bUrx')],['Restaurant']),
+  mkR('R-0034147',['Automated LeadGen','Import','Own Research'],BT,['Tanjong Pagar','Farrer Park','Tanglin','Bukit Timah','Holland Village','Woodlands','Sembawang','Yishun','Singapore Zoo','Jalan Kayu','Punggol'],['C','D','Ungraded'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO00000QSVRq','Kai Quek','RA--0054911','a3kbO000000bUtZ')],['Restaurant']),
+  mkR('R-0034154',['Automated LeadGen','Import','Own Research'],BT,['Bugis/City Hall','Paya Lebar','Mountbatten','Katong','Upper East Coast','Bedok','Bedok Reservoir','Simei'],['C','D','Ungraded'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO00000TNsbi','Vanessa Ong','RA--0054940','a3kbO000000beCz')],['Restaurant']),
+  mkR('R-0034155',['Automated LeadGen','Import','Own Research'],BT,['Marina Bay','Promenade','Tiong Bahru','Beauty World','Jurong East','Jurong South','Pioneer','Tuas','Jurong West','Bukit Batok','Bukit Panjang','Choa Chu Kang','Sungei Kadut'],['C','D','Ungraded'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO00000RcPIr','Skylar Puah','RA--0054941','a3kbO000000beEb')],['Restaurant']),
+  mkR('R-0034156',['Automated LeadGen','Import','Own Research'],BT,['Newton','River Valley','Dempsey','Novena','Toa Payoh','Kallang/Boon Keng','MacPherson','Ang Mo Kio','Bishan'],['C','D','Ungraded'],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO00000RcXGM','Sonia Ravindran','RA--0054942','a3kbO000000beGD')],['Restaurant']),
+  mkR('R-0034157',['Inbound'],BT,[],[],['AccountRecycling','OpportunityReassignment','LeadConversion','OpportunityAutoAssignment','NewLeadConversion'],[mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0054943','a3kbO000000cOkT'),mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0064343','a3kbO000000hsDF')],['Restaurant']),
+  mkR('R-0034237',['Self Sign Up'],[],[],[],['OpportunityAutoAssignmentFromCase'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0055252','a3kbO000000dKTX'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0055253','a3kbO000000dKTY'),mkA('0056900000Bc2JIAAZ','SeeTheng Ho','RA--0055254','a3kbO000000dKTZ')],[]),
+  mkR('R-0034238',['Self Sign Up'],[],[],[],['SSUAccountAutoAssignment'],[mkF('Sabriana Boon Shi Si','RA--0055242','a3kbO000000dKS5')],['Shop']),
+  mkR('R-0034239',['Inbound'],[],[],[],['IncompleteSSULeadAutoAssignment'],[mkA('0056900000CwVGvAAN','Nabila Ainzam Zamani','RA--0055234','a3kbO000000dKRx'),mkA('0056900000CG73TAAT','Muhammad Qhaireel Isha Ismail','RA--0055235','a3kbO000000dKRy')],[]),
+  mkR('R-0034240',['Self Sign Up'],[],[],[],['OpportunityAutoAssignmentFromCase'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0055243','a3kbO000000dKS6'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0055244','a3kbO000000dKS7'),mkA('0056900000Bc2JIAAZ','SeeTheng Ho','RA--0055245','a3kbO000000dKS8')],[]),
+  mkR('R-0034241',['Self Sign Up'],[],[],[],['OpportunityAutoAssignmentFromCase'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0055246','a3kbO000000dKS9'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0055247','a3kbO000000dKSA'),mkA('0056900000Bc2JIAAZ','SeeTheng Ho','RA--0055248','a3kbO000000dKSB')],[]),
+  mkR('R-0034242',['Self Sign Up'],[],[],[],['OpportunityAutoAssignmentFromCase'],[mkA('005bO000003wOhrQAE','Fio-Na Fong','RA--0055249','a3kbO000000dKSC'),mkA('005bO00000RfGNtQAN','GimRen Lein','RA--0055250','a3kbO000000dKTV'),mkA('0056900000Bc2JIAAZ','SeeTheng Ho','RA--0055251','a3kbO000000dKTW')],[]),
+  mkR('R-0034243',['Self Sign Up'],[],[],[],['IncompleteSSULeadAutoAssignment'],[mkA('0056900000CwVGvAAN','Nabila Ainzam Zamani','RA--0055232','a3kbO000000dKRv'),mkA('0056900000CG73TAAT','Muhammad Qhaireel Isha Ismail','RA--0055233','a3kbO000000dKRw')],[]),
+];
+
+// ---- STATE ----
+let state={
+  agents:[],rules:[],agentOverrides:{},
+  selectedId:null,search:'',roleFilter:'All',modal:null,modalForm:null
+};
+
+// ---- PERSISTENCE ----
+function deepClone(obj){return JSON.parse(JSON.stringify(obj));}
+function saveState(){
+  try{localStorage.setItem('ruleops_state',JSON.stringify({v:STATE_VERSION,rules:state.rules,agents:state.agents,agentOverrides:state.agentOverrides}));}catch(e){}
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem('ruleops_state');
+    if(raw){
+      const saved=JSON.parse(raw);
+      if(saved.v===STATE_VERSION){
+        state.rules=saved.rules||deepClone(DEFAULT_RULES);
+        state.agents=saved.agents||deepClone(DEFAULT_AGENTS);
+        state.agentOverrides=saved.agentOverrides||{};
+        return;
+      }
+    }
+  }catch(e){}
+  state.rules=deepClone(DEFAULT_RULES);
+  state.agents=deepClone(DEFAULT_AGENTS);
+  state.agentOverrides={};
+}
+function persist(){saveState();render();}
+
+// ---- HELPERS ----
+function getAgent(id){
+  const base=state.agents.find(a=>a.id===id);
+  if(!base)return null;
+  return{...base,...(state.agentOverrides[id]||{})};
+}
+function getInitials(n){return n.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();}
+function getStatus(aid){
+  const a=getAgent(aid);
+  if(!a)return'inactive';
+  if(!a.sources||!a.sources.length)return'incomplete';
+  if(state.rules.some(r=>r.assignments.some(x=>x.agentId===aid)))return'active';
+  return'norules';
+}
+function sc(s){return s==='active'?'var(--color-text-success)':s==='norules'?'var(--color-text-warning)':'var(--color-text-danger)';}
+function sb(s){return s==='active'?'var(--color-background-success)':s==='norules'?'var(--color-background-warning)':'var(--color-background-danger)';}
+
+// ---- CSV PARSING ----
+function parseCSVRow(line){
+  const res=[];let cur='',inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){inQ=!inQ;}
+    else if(c===','&&!inQ){res.push(cur.trim());cur='';}
+    else{cur+=c;}
+  }
+  res.push(cur.trim());
+  return res;
+}
+function splitSemi(s){return(s||'').split(';').map(x=>x.trim()).filter(Boolean);}
+function splitComma(s){return(s||'').split(',').map(x=>x.trim()).filter(Boolean);}
+
+function parseRulesCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim());
+  if(!lines.length)throw new Error('Empty file');
+  const hdrs=parseCSVRow(lines[0]).map(h=>h.toLowerCase().trim());
+  const col={
+    ruleName:hdrs.indexOf('rule name'),
+    leadSource:hdrs.indexOf('lead source'),
+    bizType:hdrs.indexOf('business type'),
+    vertical:hdrs.indexOf('vertical'),
+    locality:hdrs.indexOf('locality'),
+    grade:hdrs.indexOf('vendor grade'),
+    ops:hdrs.indexOf('applicable for operation'),
+    raId:hdrs.indexOf('recommendation agent name'),
+    agentName:hdrs.findIndex(h=>h.includes('full name')),
+    rrId:hdrs.indexOf('recommendation rule agent id'),
+  };
+  if(col.ruleName<0||col.agentName<0)throw new Error('Columns "Rule Name" and "Sales Agent: Full Name" are required');
+  const byRule=new Map();
+  let newIdx=0;
+  for(let i=1;i<lines.length;i++){
+    const row=parseCSVRow(lines[i]);
+    if(!row.some(c=>c))continue;
+    const ruleName=(row[col.ruleName]||'').trim();
+    const key=ruleName||('__NEW__'+(newIdx++));
+    if(!byRule.has(key)){
+      byRule.set(key,{
+        id:ruleName||('NEW-upload-'+Date.now()+'-'+newIdx),
+        sources:col.leadSource>=0?splitSemi(row[col.leadSource]):[],
+        bizTypes:col.bizType>=0?splitSemi(row[col.bizType]):[],
+        vertical:col.vertical>=0?splitSemi(row[col.vertical]):[],
+        localities:col.locality>=0?splitComma(row[col.locality]):[],
+        grades:col.grade>=0?splitSemi(row[col.grade]):[],
+        ops:col.ops>=0?splitSemi(row[col.ops]):[],
+        assignments:[]
+      });
+    }
+    const agentName=(col.agentName>=0?row[col.agentName]:'').trim();
+    if(!agentName)continue;
+    const matchedAgent=state.agents.find(a=>a.name===agentName);
+    byRule.get(key).assignments.push({
+      agentId:matchedAgent?matchedAgent.id:null,
+      agentName,
+      raId:col.raId>=0?(row[col.raId]||''):'',
+      rrId:col.rrId>=0?(row[col.rrId]||''):'',
+      isNew:false,
+      isFormer:!matchedAgent
+    });
+  }
+  const result=Array.from(byRule.values()).filter(r=>r.assignments.length>0);
+  if(!result.length)throw new Error('No valid rule rows found');
+  return result;
+}
+
+function parseAgentsCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim());
+  if(!lines.length)throw new Error('Empty file');
+  const hdrs=parseCSVRow(lines[0]).map(h=>h.toLowerCase().trim());
+  const col={
+    name:hdrs.indexOf('name'),
+    sfId:hdrs.indexOf('sf_id'),
+    email:hdrs.indexOf('email'),
+    alias:hdrs.indexOf('sf_alias'),
+    role:hdrs.indexOf('role'),
+    source:hdrs.findIndex(h=>h.includes('account source')||h==='source'),
+    bizType:hdrs.findIndex(h=>h.includes('business type')||h==='business types'),
+  };
+  if(col.name<0)throw new Error('Column "name" is required in agent CSV');
+  const agents=[];
+  for(let i=1;i<lines.length;i++){
+    const row=parseCSVRow(lines[i]);
+    if(!row.some(c=>c))continue;
+    const name=(col.name>=0?row[col.name]:'').trim();
+    if(!name)continue;
+    agents.push({
+      id:col.sfId>=0&&row[col.sfId]?row[col.sfId].trim():('agent-'+Date.now()+'-'+i),
+      name,
+      email:col.email>=0?(row[col.email]||'').trim():'',
+      alias:col.alias>=0?(row[col.alias]||'').trim():'',
+      role:col.role>=0?(row[col.role]||'').trim():'',
+      sources:col.source>=0?splitComma(row[col.source]):[],
+      bizTypes:col.bizType>=0?splitSemi(row[col.bizType]):[],
+    });
+  }
+  if(!agents.length)throw new Error('No valid agent rows found');
+  return agents;
+}
+
+// ---- EXPORT ----
+function exportCSV(){
+  const hdr='Rule Name,Lead Source,Business Type,Vertical,Locality,Vendor Grade,Applicable for Operation,Recommendation Agent Name,Sales Agent: Full Name,Recommendation Rule Agent ID';
+  const rows=[];
+  for(const r of state.rules){
+    for(const a of r.assignments){
+      const loc=r.localities.length?`"${r.localities.join(', ')}"` :'';
+      rows.push([r.id.startsWith('NEW')?'':r.id,r.sources.join('; '),r.bizTypes.join('; '),r.vertical.join('; '),loc,r.grades.join('; '),r.ops.join('; '),a.raId||'',a.agentName,a.rrId||''].join(','));
+    }
+  }
+  const content=[hdr,...rows].join('\n');
+  const blob=new Blob([content],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const el=document.createElement('a');
+  el.href=url;el.download=`recommendation_rules_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(el);el.click();document.body.removeChild(el);URL.revokeObjectURL(url);
+}
+
+// ---- TOAST ----
+function showToast(msg,type='success'){
+  const t=document.createElement('div');
+  const bg=type==='success'?'var(--color-background-success)':type==='error'?'var(--color-background-danger)':'var(--color-background-info)';
+  const col=type==='success'?'var(--color-text-success)':type==='error'?'var(--color-text-danger)':'var(--color-text-info)';
+  const bd=type==='success'?'var(--color-border-success)':type==='error'?'var(--color-border-danger)':'var(--color-border-info)';
+  t.style.cssText=`position:fixed;top:20px;right:20px;z-index:9999;padding:12px 18px;background:${bg};color:${col};border:1px solid ${bd};border-radius:var(--border-radius-md);font-size:13px;font-weight:500;max-width:340px;line-height:1.4;box-shadow:0 4px 16px rgba(0,0,0,.12);`;
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300);},3500);
+}
+
+// ---- RENDER HELPERS ----
+function pill(text,bg,col,sm){return`<span style="background:${bg};color:${col};padding:2px 7px;border-radius:999px;font-size:${sm?'10px':'11px'};font-weight:500;white-space:nowrap;display:inline-block;">${text}</span>`;}
+function sdot(s){return`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc(s)};flex-shrink:0;"></span>`;}
+function rtags(arr,max,bg,col){
+  bg=bg||'var(--color-background-secondary)';col=col||'var(--color-text-secondary)';
+  if(!arr||!arr.length)return`<em style="color:var(--color-text-secondary);font-size:11px;">Any</em>`;
+  let h=arr.slice(0,max).map(v=>pill(v,bg,col)).join(' ');
+  if(arr.length>max)h+=` ${pill('+' +(arr.length-max)+' more',PINKL,PINK)}`;
+  return h;
+}
+function vertPills(vert){return(vert||[]).map(v=>pill(v,v==='Shop'?'#E8F4FD':'#EAF3DE',v==='Shop'?'#1a6696':'#3B6D11',true)).join(' ');}
+function fldH(label){return`<div style="font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">${label}</div>`;}
+
+function renderCboxes(opts,field,prefix){
+  const form=state.modalForm;
+  return opts.map(o=>`<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;padding:2px 0;color:var(--color-text-primary);">
+    <input type="checkbox" ${form&&form[field]&&form[field].includes(o)?'checked':''} onchange="updateField('${prefix}','${field}','${o}',this.checked)"> ${o}
+  </label>`).join('');
+}
+
+function renderRuleForm(form,prefix){
+  return`<div>
+    <div style="margin-bottom:14px;">${fldH('Lead Sources')}<div style="display:flex;flex-wrap:wrap;gap:2px 14px;">${renderCboxes(LS,'sources',prefix)}</div></div>
+    <div style="margin-bottom:14px;">${fldH('Business Types')}<div style="display:flex;flex-wrap:wrap;gap:2px 14px;">${renderCboxes(BT,'bizTypes',prefix)}</div></div>
+    <div style="margin-bottom:14px;">${fldH('Vertical')}<div style="display:flex;gap:2px 14px;">${renderCboxes(VERTICALS,'vertical',prefix)}</div></div>
+    <div style="margin-bottom:14px;">${fldH('Vendor Grades')}<div style="display:flex;flex-wrap:wrap;gap:2px 14px;">${renderCboxes(VG,'grades',prefix)}</div></div>
+    <div style="margin-bottom:14px;">${fldH('Applicable Operations')}<div style="display:flex;flex-wrap:wrap;gap:2px 14px;">${renderCboxes(OPS,'ops',prefix)}</div></div>
+    <div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        ${fldH('Localities ('+(form.localities?form.localities.length:0)+' selected)')}
+        <div style="display:flex;gap:10px;">
+          <button onclick="setAllLoc('${prefix}',true)" style="font-size:11px;background:none;border:none;color:${PINK};">All</button>
+          <button onclick="setAllLoc('${prefix}',false)" style="font-size:11px;background:none;border:none;color:var(--color-text-secondary);">Clear</button>
+        </div>
+      </div>
+      <input type="text" id="${prefix}LS" oninput="filterLoc('${prefix}')" placeholder="Search localities…" style="width:100%;padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:13px;background:var(--color-background-primary);color:var(--color-text-primary);margin-bottom:6px;display:block;">
+      <div id="${prefix}LG" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;max-height:150px;overflow-y:auto;border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:8px;">
+        ${LOCS.map(l=>`<label class="${prefix}LI" data-loc="${l}" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;padding:2px 0;color:var(--color-text-primary);">
+          <input type="checkbox" ${form.localities&&form.localities.includes(l)?'checked':''} onchange="updateLocField('${prefix}','${l}',this.checked)" style="accent-color:${PINK};flex-shrink:0;"> ${l}
+        </label>`).join('')}
+      </div>
+      ${form.localities&&form.localities.length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">${form.localities.map(l=>`<span style="background:var(--color-background-danger);color:var(--color-text-danger);padding:2px 8px;border-radius:999px;font-size:11px;display:flex;align-items:center;gap:4px;">${l}<button onclick="updateLocField('${prefix}','${l}',false);render()" style="background:none;border:none;cursor:pointer;color:var(--color-text-danger);padding:0;font-size:12px;line-height:1;">×</button></span>`).join('')}</div>`:''}
+    </div>
+  </div>`;
+}
+
+function renderRuleCard(rule,agentId){
+  const active=rule.assignments.filter(a=>!a.isFormer);
+  const former=rule.assignments.filter(a=>a.isFormer);
+  const others=active.filter(a=>a.agentId!==agentId);
+  const isNew=rule.id.startsWith('NEW');
+  const hasNew=rule.assignments.some(a=>a.isNew);
+  const multi=active.length>1;
+  return`<div style="background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px;margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-weight:500;font-size:13px;">${isNew?'New Rule':rule.id}</span>
+        ${isNew?pill('NEW','var(--color-background-success)','var(--color-text-success)',true):''}
+        ${hasNew&&!isNew?pill('MODIFIED','var(--color-background-warning)','var(--color-text-warning)',true):''}
+        ${vertPills(rule.vertical)}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button onclick="openEditRule('${rule.id}')" style="padding:4px 10px;border:1px solid ${PINK};color:${PINK};background:transparent;border-radius:var(--border-radius-md);font-size:12px;">Edit</button>
+        <button onclick="confirmRemove('${rule.id}')" style="padding:4px 10px;border:1px solid var(--color-border-danger);color:var(--color-text-danger);background:transparent;border-radius:var(--border-radius-md);font-size:12px;">Remove</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-bottom:8px;">
+      <div>${fldH('Lead Sources')}${rtags(rule.sources,3)}</div>
+      <div>${fldH('Operations')}${rtags(rule.ops,2)}</div>
+      <div>${fldH('Vendor Grades')}${rtags(rule.grades,4)}</div>
+      <div>${fldH('Business Types')}${rtags(rule.bizTypes,2)}</div>
+    </div>
+    ${rule.localities.length?`<div style="margin-bottom:8px;">${fldH('Localities ('+rule.localities.length+')')}${rtags(rule.localities,4)}</div>`:''}
+    ${(others.length||former.length||multi)?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--color-border-tertiary);">
+      ${multi?`<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:6px;">⇄ Round robin among ${active.length} agents in this rule</div>`:''}
+      ${others.length?`${fldH('Also in this rule')}<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:${former.length?'10px':'0'};">${others.map(a=>pill(a.agentName,'var(--color-background-secondary)','var(--color-text-primary)')).join('')}</div>`:''}
+      ${former.length?`${fldH('Former agents')}<div style="display:flex;flex-direction:column;gap:6px;">${former.map(a=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${pill('⚠ '+a.agentName+' (Former)','var(--color-background-warning)','var(--color-text-warning)')}<button onclick="openReplaceFormer('${rule.id}','${a.raId}')" style="font-size:11px;padding:2px 10px;background:${PINK};color:white;border:none;border-radius:999px;">Replace</button></div>`).join('')}</div>`:''}
+    </div>`:''}
+  </div>`;
+}
+
+function renderSidebar(){
+  const roles=['All',...new Set(state.agents.map(a=>a.role))];
+  const filtered=state.agents.filter(a=>(state.roleFilter==='All'||a.role===state.roleFilter)&&(state.search===''||a.name.toLowerCase().includes(state.search.toLowerCase())));
+  const cnt={active:0,norules:0,incomplete:0};
+  state.agents.forEach(a=>{const s=getStatus(a.id);cnt[s]=(cnt[s]||0)+1;});
+  return`<div style="width:210px;min-width:210px;background:var(--color-background-secondary);border-right:1px solid var(--color-border-tertiary);display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:10px 10px 4px;">
+      <input type="search" placeholder="Search agents…" value="${state.search.replace(/"/g,'&quot;')}" oninput="st({search:this.value,selectedId:null})" style="width:100%;padding:6px 10px;border:1px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:12px;background:var(--color-background-primary);color:var(--color-text-primary);">
+    </div>
+    <div style="padding:4px 10px 6px;display:flex;flex-wrap:wrap;gap:3px;">
+      ${roles.map(r=>`<button onclick="st({roleFilter:'${r}',selectedId:null})" style="padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid ${state.roleFilter===r?PINK:'var(--color-border-tertiary)'};background:${state.roleFilter===r?PINK:'transparent'};color:${state.roleFilter===r?'white':'var(--color-text-secondary)'};">${r}</button>`).join('')}
+    </div>
+    <div style="flex:1;overflow-y:auto;">
+      ${filtered.map(a=>{const s=getStatus(a.id);const sel=state.selectedId===a.id;return`<div onclick="st({selectedId:'${a.id}'})" style="padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;background:${sel?PINKL:'transparent'};border-left:3px solid ${sel?PINK:'transparent'};">
+        <div style="width:30px;height:30px;border-radius:50%;background:${sel?PINK:'var(--color-background-primary)'};color:${sel?'white':'var(--color-text-secondary)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0;border:1px solid var(--color-border-tertiary);">${getInitials(a.name)}</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:${sel?500:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--color-text-primary);">${a.name}</div><div style="font-size:10px;color:var(--color-text-secondary);">${a.role}</div></div>
+        <div style="width:7px;height:7px;border-radius:50%;background:${sc(s)};flex-shrink:0;"></div>
+      </div>`;}).join('')}
+    </div>
+    <div style="padding:8px 10px;border-top:1px solid var(--color-border-tertiary);">
+      <div style="display:flex;justify-content:space-around;font-size:10px;color:var(--color-text-secondary);margin-bottom:5px;">
+        <span>${cnt.active||0} active</span><span>${cnt.norules||0} no rules</span><span>${cnt.incomplete||0} incomplete</span>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        ${[['var(--color-text-success)','Active'],['var(--color-text-warning)','No Rules'],['var(--color-text-danger)','Incomplete']].map(([c,l])=>`<div style="display:flex;align-items:center;gap:3px;"><div style="width:6px;height:6px;border-radius:50%;background:${c};"></div><span style="font-size:9px;color:var(--color-text-secondary);">${l}</span></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDashboard(){
+  const norules=state.agents.filter(a=>getStatus(a.id)==='norules');
+  const incomplete=state.agents.filter(a=>getStatus(a.id)==='incomplete');
+  const formers=[];
+  state.rules.forEach(r=>r.assignments.filter(a=>a.isFormer).forEach(a=>formers.push({name:a.agentName,ruleId:r.id,raId:a.raId,vert:r.vertical})));
+  const newRules=state.rules.filter(r=>r.id.startsWith('NEW'));
+  const modified=state.rules.filter(r=>!r.id.startsWith('NEW')&&r.assignments.some(a=>a.isNew));
+  return`<div style="padding:20px;overflow-y:auto;height:100%;">
+    <div style="font-weight:500;font-size:16px;margin-bottom:14px;color:var(--color-text-primary);">Overview</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+      ${[['Total',state.agents.length,'var(--color-text-primary)'],['With Rules',state.agents.filter(a=>getStatus(a.id)==='active').length,'var(--color-text-success)'],['Need Rules',norules.length,'var(--color-text-warning)'],['Incomplete',incomplete.length,'var(--color-text-danger)']].map(([l,v,c])=>`<div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:14px;border:1px solid var(--color-border-tertiary);"><div style="font-size:26px;font-weight:500;color:${c};">${v}</div><div style="font-size:11px;color:var(--color-text-secondary);margin-top:2px;">${l}</div></div>`).join('')}
+    </div>
+    ${(norules.length||incomplete.length)?`<div style="background:var(--color-background-warning);border:1px solid var(--color-border-warning);border-radius:var(--border-radius-lg);padding:12px 14px;margin-bottom:12px;">
+      <div style="font-weight:500;font-size:12px;color:var(--color-text-warning);margin-bottom:8px;">⚠ ${norules.length+incomplete.length} agents need attention — click to open and assign rules</div>
+      ${[...norules.map(a=>({...a,issue:'No rules assigned'})),...incomplete.map(a=>({...a,issue:'No account source — use Edit Profile'}))].map(a=>`<div onclick="st({selectedId:'${a.id}'})" style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--color-border-warning);cursor:pointer;">
+        <div style="width:26px;height:26px;border-radius:50%;background:${sb(getStatus(a.id))};color:${sc(getStatus(a.id))};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0;">${getInitials(a.name)}</div>
+        <div style="flex:1;"><div style="font-size:12px;color:var(--color-text-primary);">${a.name}</div><div style="font-size:11px;color:var(--color-text-warning);">${a.issue}</div></div>
+        <span style="font-size:11px;color:var(--color-text-secondary);">${a.role} →</span>
+      </div>`).join('')}
+    </div>`:''}
+    ${formers.length?`<div style="background:var(--color-background-danger);border:1px solid var(--color-border-danger);border-radius:var(--border-radius-lg);padding:12px 14px;margin-bottom:12px;">
+      <div style="font-weight:500;font-size:12px;color:var(--color-text-danger);margin-bottom:6px;">Former agents in active rules — replace or remove manually in Salesforce</div>
+      ${formers.map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--color-border-danger);flex-wrap:wrap;">
+        <div style="flex:1;"><span style="font-size:12px;color:var(--color-text-danger);">${f.name}</span><span style="font-size:11px;color:var(--color-text-danger);opacity:.7;margin-left:6px;">in ${f.ruleId}</span> ${vertPills(f.vert)}</div>
+        <button onclick="openReplaceFormer('${f.ruleId}','${f.raId}')" style="font-size:11px;padding:3px 12px;background:${PINK};color:white;border:none;border-radius:999px;flex-shrink:0;">Replace agent</button>
+      </div>`).join('')}
+    </div>`:''}
+    ${(newRules.length||modified.length)?`<div style="background:var(--color-background-info);border:1px solid var(--color-border-info);border-radius:var(--border-radius-md);padding:9px 12px;margin-bottom:12px;font-size:12px;color:var(--color-text-info);">
+      ℹ ${newRules.length} new rule${newRules.length!==1?'s':''} and ${modified.length} modified rule${modified.length!==1?'s':''} pending export.
+    </div>`:''}
+    <div style="background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--color-border-tertiary);font-weight:500;font-size:13px;color:var(--color-text-primary);">All rules (${state.rules.length})</div>
+      <div style="overflow-y:auto;max-height:calc(100vh - 480px);">
+        ${state.rules.map(r=>{const acts=r.assignments.filter(a=>!a.isFormer);const fm=r.assignments.filter(a=>a.isFormer);
+          return`<div style="padding:9px 14px;border-bottom:1px solid var(--color-border-tertiary);display:flex;align-items:center;gap:8px;font-size:12px;">
+            <span style="font-weight:500;min-width:88px;color:var(--color-text-primary);">${r.id.startsWith('NEW')?'New Rule':r.id}</span>
+            ${vertPills(r.vertical)}
+            <div style="flex:1;display:flex;flex-wrap:wrap;gap:3px;">${rtags(r.sources,2)} ${rtags(r.ops,1)}</div>
+            <span style="color:var(--color-text-secondary);white-space:nowrap;">${acts.length} agent${acts.length!==1?'s':''}</span>
+            ${fm.length?pill(fm.length+' former','var(--color-background-warning)','var(--color-text-warning)',true):''}
+          </div>`;}).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderAgentDetail(){
+  const agent=getAgent(state.selectedId);
+  if(!agent)return'';
+  const s=getStatus(agent.id);
+  const agentRules=state.rules.filter(r=>r.assignments.some(a=>a.agentId===agent.id));
+  return`<div style="padding:20px;overflow-y:auto;height:100%;">
+    <button onclick="st({selectedId:null})" style="background:none;border:none;color:var(--color-text-secondary);font-size:12px;margin-bottom:12px;display:flex;align-items:center;gap:4px;">← All agents</button>
+    <div style="background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px;margin-bottom:14px;display:flex;align-items:flex-start;gap:14px;">
+      <div style="width:46px;height:46px;border-radius:50%;background:${sb(s)};color:${sc(s)};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500;flex-shrink:0;">${getInitials(agent.name)}</div>
+      <div style="flex:1;">
+        <div style="font-weight:500;font-size:15px;margin-bottom:3px;color:var(--color-text-primary);">${agent.name}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;color:var(--color-text-secondary);">${agent.role}</span>·
+          <span style="font-size:12px;color:var(--color-text-secondary);">${agent.email}</span>·
+          <code style="font-size:11px;background:var(--color-background-secondary);padding:1px 6px;border-radius:4px;color:var(--color-text-secondary);">${agent.alias}</code>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">
+          ${agent.sources.length?agent.sources.map(src=>pill(src,'var(--color-background-info)','var(--color-text-info)')).join(''):pill('No account source — click Edit Profile','var(--color-background-danger)','var(--color-text-danger)')}
+        </div>
+        ${agent.bizTypes.length?`<div style="display:flex;flex-wrap:wrap;gap:4px;">${agent.bizTypes.map(b=>pill(b,'var(--color-background-secondary)','var(--color-text-secondary)')).join('')}</div>`:''}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        ${pill(s==='active'?'Active':s==='norules'?'No Rules':'Incomplete',sb(s),sc(s))}
+        <button onclick="openEditProfile()" style="padding:4px 10px;border:1px solid var(--color-border-secondary);background:transparent;border-radius:var(--border-radius-md);font-size:11px;color:var(--color-text-secondary);">✏ Edit Profile</button>
+      </div>
+    </div>
+    ${s!=='active'?`<div style="background:var(--color-background-warning);border:1px solid var(--color-border-warning);border-radius:var(--border-radius-md);padding:9px 12px;margin-bottom:12px;font-size:12px;color:var(--color-text-warning);">
+      ⚠ ${s==='incomplete'?'No account source set. Click <strong>Edit Profile</strong> above to configure this agent.':'No recommendation rules assigned yet. Use the buttons below to add rules.'}
+    </div>`:''}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <span style="font-weight:500;font-size:14px;color:var(--color-text-primary);">Rules (${agentRules.length})</span>
+      <div style="display:flex;gap:8px;">
+        <button onclick="openAddToRule()" style="padding:5px 12px;border:1px solid ${PINK};color:${PINK};background:transparent;border-radius:var(--border-radius-md);font-size:12px;">+ Assign to existing</button>
+        <button onclick="openCreateRule()" style="padding:5px 12px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:12px;font-weight:500;">+ New rule</button>
+      </div>
+    </div>
+    ${agentRules.length===0?`<div style="text-align:center;padding:28px;color:var(--color-text-secondary);border:1px dashed var(--color-border-secondary);border-radius:var(--border-radius-lg);font-size:13px;">No rules assigned yet.</div>`:agentRules.map(r=>renderRuleCard(r,agent.id)).join('')}
+  </div>`;
+}
+
+function renderModal(){
+  if(!state.modal)return'';
+  const m=state.modal;
+  const agent=getAgent(state.selectedId);
+  let title='',content='',saveBtn='';
+  if(m.type==='editRule'){
+    const rule=state.rules.find(r=>r.id===m.ruleId);
+    const acts=rule?rule.assignments.filter(a=>!a.isFormer):[];
+    title=`Edit rule: ${m.ruleId}`;
+    content=`${acts.length>1?`<div style="background:var(--color-background-warning);border:1px solid var(--color-border-warning);border-radius:var(--border-radius-md);padding:8px 12px;margin-bottom:14px;font-size:12px;color:var(--color-text-warning);">⚠ Shared by ${acts.length} agents — changes affect all. Leads distributed by round robin.</div>`:''}${renderRuleForm(state.modalForm,'edit')}`;
+    saveBtn=`<button onclick="saveEditRule()" style="padding:7px 18px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;">Save changes</button>`;
+  }else if(m.type==='createRule'){
+    title=`Create new rule for ${agent?agent.name:''}`;
+    content=`<p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px;">Lead sources pre-filled from agent profile. New rules export with a blank Rule Name — Salesforce generates the ID on import.</p>${renderRuleForm(state.modalForm,'create')}`;
+    saveBtn=`<button onclick="saveCreateRule()" style="padding:7px 18px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;">Create rule</button>`;
+  }else if(m.type==='addToRule'){
+    const compat=state.rules.filter(r=>!r.assignments.some(a=>a.agentId===state.selectedId)&&(r.sources.length===0||agent.sources.some(src=>r.sources.includes(src))));
+    title=`Assign ${agent?agent.name:''} to existing rule`;
+    content=compat.length===0?`<div style="text-align:center;padding:24px;color:var(--color-text-secondary);">No compatible rules found. Create a new rule instead.</div>`:
+    `<p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px;">Only rules compatible with this agent's account sources shown. Click a rule to assign.</p>
+    <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto;">
+    ${compat.map(r=>{const acts=r.assignments.filter(a=>!a.isFormer);
+      return`<div onclick="addToExisting('${r.id}')" style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:11px 12px;cursor:pointer;" onmouseover="this.style.borderColor='${PINK}'" onmouseout="this.style.borderColor='var(--color-border-tertiary)'">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-weight:500;font-size:13px;color:var(--color-text-primary);">${r.id}</span>${vertPills(r.vertical)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">${rtags(r.sources,3)} ${rtags(r.ops,2)}</div>
+        <div style="font-size:11px;color:var(--color-text-secondary);">${acts.length} agent${acts.length!==1?'s':''} assigned${r.localities.length?` · ${r.localities.length} localities`:''}</div>
+      </div>`;}).join('')}
+    </div>`;
+  }else if(m.type==='confirmRemove'){
+    const ag2=getAgent(state.selectedId);
+    title='Confirm removal';
+    content=`<p style="font-size:14px;margin-bottom:8px;color:var(--color-text-primary);">Remove <strong>${ag2?ag2.name:''}</strong> from rule <strong>${m.ruleId}</strong>?</p><p style="font-size:12px;color:var(--color-text-secondary);">This agent will be omitted from the next CSV export for this rule. Delete their Salesforce record manually if needed. Other agents in the rule are unaffected.</p>`;
+    saveBtn=`<button onclick="doRemove('${m.ruleId}')" style="padding:7px 18px;background:var(--color-text-danger);color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;">Yes, remove</button>`;
+  }else if(m.type==='editProfile'){
+    const ag3=getAgent(state.selectedId);
+    title=`Edit profile: ${ag3?ag3.name:''}`;
+    content=`<p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px;">Set the account sources and business types this agent can handle. Changes update rule compatibility checks immediately.</p>
+    <div style="margin-bottom:14px;">${fldH('Account Sources')}<div style="display:flex;flex-wrap:wrap;gap:2px 14px;">${renderCboxes(LS,'sources','prof')}</div></div>
+    <div style="margin-bottom:6px;">${fldH('Business Types')}<div style="display:flex;flex-wrap:wrap;gap:2px 14px;">${renderCboxes(BT,'bizTypes','prof')}</div></div>`;
+    saveBtn=`<button onclick="saveEditProfile()" style="padding:7px 18px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;">Save profile</button>`;
+  }else if(m.type==='replaceFormer'){
+    const rule=state.rules.find(r=>r.id===m.ruleId);
+    const former=rule?rule.assignments.find(a=>a.raId===m.formerRaId):null;
+    const existIds=rule?rule.assignments.filter(a=>!a.isFormer).map(a=>a.agentId):[];
+    const compat=state.agents.filter(a=>{const ag=getAgent(a.id);if(existIds.includes(a.id))return false;if(!rule)return true;return ag.sources.length===0||rule.sources.length===0||ag.sources.some(src=>rule.sources.includes(src));});
+    title=`Replace ${former?former.agentName:'former agent'} in ${m.ruleId}`;
+    content=`<p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Select a team member to take over this assignment. Former agent will be removed and new assignment created on export. Delete their Salesforce record manually after importing.</p>
+    <div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+      ${compat.map(a=>{const ag=getAgent(a.id);const s=getStatus(a.id);
+        return`<div onclick="doReplaceFormer('${m.ruleId}','${m.formerRaId}','${a.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);cursor:pointer;" onmouseover="this.style.borderColor='${PINK}'" onmouseout="this.style.borderColor='var(--color-border-tertiary)'">
+          <div style="width:32px;height:32px;border-radius:50%;background:${sb(s)};color:${sc(s)};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;">${getInitials(a.name)}</div>
+          <div style="flex:1;"><div style="font-size:13px;font-weight:500;color:var(--color-text-primary);">${a.name}</div><div style="font-size:11px;color:var(--color-text-secondary);">${a.role} · ${ag.sources.join(', ')||'No sources set'}</div></div>
+          ${sdot(s)}
+        </div>`;}).join('')}
+      ${compat.length===0?`<div style="text-align:center;padding:20px;color:var(--color-text-secondary);">No compatible agents available.</div>`:''}
+    </div>`;
+  }
+  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;">
+    <div style="background:var(--color-background-primary);border-radius:var(--border-radius-lg);width:100%;max-width:600px;border:1px solid var(--color-border-secondary);margin:auto;">
+      <div style="padding:13px 18px;border-bottom:1px solid var(--color-border-tertiary);display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-weight:500;font-size:14px;color:var(--color-text-primary);">${title}</span>
+        <button onclick="st({modal:null,modalForm:null})" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-secondary);line-height:1;padding:0 4px;">×</button>
+      </div>
+      <div style="padding:16px 18px;max-height:70vh;overflow-y:auto;">${content}</div>
+      <div style="padding:12px 18px;border-top:1px solid var(--color-border-tertiary);display:flex;justify-content:flex-end;gap:10px;">
+        <button onclick="st({modal:null,modalForm:null})" style="padding:7px 16px;border:1px solid var(--color-border-secondary);background:transparent;border-radius:var(--border-radius-md);font-size:13px;color:var(--color-text-primary);">Cancel</button>
+        ${saveBtn}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderHeader(){
+  const attn=state.agents.filter(a=>getStatus(a.id)!=='active').length;
+  const pend=state.rules.filter(r=>r.id.startsWith('NEW')||r.assignments.some(a=>a.isNew)).length;
+  return`<div style="background:var(--color-background-secondary);border-bottom:1px solid var(--color-border-tertiary);padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:30px;height:30px;border-radius:8px;background:${PINK};display:flex;align-items:center;justify-content:center;color:white;font-size:16px;flex-shrink:0;">⚡</div>
+      <div>
+        <span style="font-weight:600;font-size:14px;letter-spacing:-.3px;color:var(--color-text-primary);">RuleOps</span>
+        <span style="font-size:11px;color:var(--color-text-secondary);margin-left:8px;">Recommendation Rule Manager</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      ${attn?`<span style="background:var(--color-background-warning);color:var(--color-text-warning);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:500;">⚠ ${attn} without rules</span>`:''}
+      ${pend?`<span style="background:var(--color-background-info);color:var(--color-text-info);padding:3px 10px;border-radius:999px;font-size:11px;">${pend} pending</span>`:''}
+      <button onclick="document.getElementById('agentsCSVInput').click()" style="padding:6px 12px;border:1px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);border-radius:var(--border-radius-md);font-size:12px;">↑ Upload Agents</button>
+      <button onclick="document.getElementById('rulesCSVInput').click()" style="padding:6px 12px;border:1px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);border-radius:var(--border-radius-md);font-size:12px;">↑ Upload Rules</button>
+      <button onclick="exportCSV()" style="padding:6px 14px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:12px;font-weight:500;">↓ Export CSV</button>
+      <button onclick="resetDefaults()" title="Reset to defaults" style="padding:6px 8px;border:1px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);border-radius:var(--border-radius-md);font-size:12px;" title="Reset all data to defaults">↺</button>
+    </div>
+  </div>`;
+}
+
+function render(){
+  const app=document.getElementById('app');
+  if(!app)return;
+  app.innerHTML=`${renderHeader()}<div style="display:flex;flex:1;overflow:hidden;">${renderSidebar()}<div style="flex:1;overflow-y:auto;background:var(--color-background-tertiary);">${state.selectedId?renderAgentDetail():renderDashboard()}</div></div>${renderModal()}`;
+}
+
+// ---- HANDLERS ----
+window.st=p=>{Object.assign(state,p);persist();};
+window.render=render;
+
+window.openEditRule=id=>{const r=state.rules.find(x=>x.id===id);if(!r)return;state.modal={type:'editRule',ruleId:id};state.modalForm={sources:[...r.sources],bizTypes:[...r.bizTypes],vertical:[...r.vertical],localities:[...r.localities],grades:[...r.grades],ops:[...r.ops]};render();};
+window.saveEditRule=()=>{state.rules=state.rules.map(r=>r.id===state.modal.ruleId?{...r,...state.modalForm}:r);state.modal=null;state.modalForm=null;persist();};
+window.openCreateRule=()=>{const a=getAgent(state.selectedId);state.modal={type:'createRule'};state.modalForm={sources:a?[...a.sources]:[],bizTypes:a?[...a.bizTypes]:[],vertical:[],localities:[],grades:[],ops:[]};render();};
+window.saveCreateRule=()=>{const a=getAgent(state.selectedId);if(!a)return;const nr={id:'NEW-'+Date.now(),...state.modalForm,assignments:[{agentId:a.id,agentName:a.name,raId:'',rrId:'',isNew:true}]};state.rules=[...state.rules,nr];state.modal=null;state.modalForm=null;persist();};
+window.openAddToRule=()=>{state.modal={type:'addToRule'};state.modalForm=null;render();};
+window.addToExisting=id=>{const a=getAgent(state.selectedId);if(!a)return;state.rules=state.rules.map(r=>r.id===id?{...r,assignments:[...r.assignments,{agentId:a.id,agentName:a.name,raId:'',rrId:'',isNew:true}]}:r);state.modal=null;state.modalForm=null;persist();};
+window.confirmRemove=id=>{state.modal={type:'confirmRemove',ruleId:id};state.modalForm=null;render();};
+window.doRemove=id=>{state.rules=state.rules.map(r=>r.id===id?{...r,assignments:r.assignments.filter(a=>a.agentId!==state.selectedId)}:r);state.modal=null;state.modalForm=null;persist();};
+window.openEditProfile=()=>{const a=getAgent(state.selectedId);state.modal={type:'editProfile'};state.modalForm={sources:a?[...a.sources]:[],bizTypes:a?[...a.bizTypes]:[]};render();};
+window.saveEditProfile=()=>{if(!state.selectedId||!state.modalForm)return;state.agentOverrides[state.selectedId]={...state.modalForm};state.modal=null;state.modalForm=null;persist();};
+window.openReplaceFormer=(ruleId,raId)=>{state.modal={type:'replaceFormer',ruleId,formerRaId:raId};state.modalForm=null;render();};
+window.doReplaceFormer=(ruleId,formerRaId,newAgentId)=>{const a=getAgent(newAgentId);if(!a)return;state.rules=state.rules.map(r=>r.id!==ruleId?r:{...r,assignments:[...r.assignments.filter(x=>x.raId!==formerRaId),{agentId:newAgentId,agentName:a.name,raId:'',rrId:'',isNew:true}]});state.modal=null;state.modalForm=null;persist();};
+window.updateField=(prefix,field,value,checked)=>{if(!state.modalForm)return;const arr=state.modalForm[field]?[...state.modalForm[field]]:[];state.modalForm[field]=checked?[...arr,value]:arr.filter(v=>v!==value);render();};
+window.updateLocField=(prefix,loc,checked)=>{if(!state.modalForm)return;const arr=state.modalForm.localities?[...state.modalForm.localities]:[];state.modalForm.localities=checked?[...arr,loc]:arr.filter(v=>v!==loc);render();};
+window.setAllLoc=(prefix,all)=>{if(!state.modalForm)return;state.modalForm.localities=all?[...LOCS]:[];render();};
+window.filterLoc=prefix=>{const q=document.getElementById(prefix+'LS');if(!q)return;const v=q.value.toLowerCase();document.querySelectorAll('.'+prefix+'LI').forEach(el=>{el.style.display=el.dataset.loc.toLowerCase().includes(v)?'':'none';});};
+
+window.handleRulesUpload=function(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const newRules=parseRulesCSV(e.target.result);
+      state.rules=newRules;
+      persist();
+      showToast(`✓ Loaded ${newRules.length} rules from "${file.name}"`, 'success');
+    }catch(err){showToast('Error parsing rules CSV: '+err.message,'error');}
+  };
+  reader.readAsText(file);
+  event.target.value='';
+};
+
+window.handleAgentsUpload=function(event){
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const newAgents=parseAgentsCSV(e.target.result);
+      state.agents=newAgents;
+      persist();
+      showToast(`✓ Loaded ${newAgents.length} agents from "${file.name}"`, 'success');
+    }catch(err){showToast('Error parsing agents CSV: '+err.message,'error');}
+  };
+  reader.readAsText(file);
+  event.target.value='';
+};
+
+window.resetDefaults=function(){
+  if(!confirm('Reset all data to defaults? This clears uploaded CSVs and all changes.'))return;
+  localStorage.removeItem('ruleops_state');
+  location.reload();
+};
+
+// ---- INIT ----
+loadState();
+render();
+</script>
+</body>
+</html>
