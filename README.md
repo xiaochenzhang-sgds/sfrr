@@ -20,7 +20,7 @@ A slick, browser-based tool built for **US** to manage recommendation rules with
 - ✏️ Edit rule parameters — localities, lead sources, vendor grades, operations, verticals
 - ➕ Assign agents to existing rules or spin up brand new ones
 - 🚨 Instantly spot agents with **no rules** or **incomplete profiles**
-- 🔄 Replace former agents in active rules (bye Jonathan 👋)
+- 🔄 Replace former agents in active rules (bye~ 👋)
 - 📤 Export a Salesforce-ready CSV in the exact bulk upload format
 
 ---
