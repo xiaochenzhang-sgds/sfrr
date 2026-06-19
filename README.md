@@ -8,7 +8,7 @@ A slick, browser-based tool built for **US** to manage recommendation rules with
 
 ## 🚀 Live App
 
-👉 **[Open RuleOps](https://xiaochenzhang-sgds.github.io/sfrr)**
+👉 **[Open SF Recommendation Rule Optimizer](https://xiaochenzhang-sgds.github.io/sfrr)**
 
 > Works best on Chrome. No login. No install. Just vibes. ✨
 
