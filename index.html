@@ -77,7 +77,22 @@ const BEST_PRACTICES={
   }
 };
 
-// ---- SALESFORCE REPORT LINKS ----
+// ---- ROLE DISPLAY MAPPING ----
+// Maps Salesforce Central Job Role values → simplified display names used in the UI
+const ROLE_MAP={
+  'field sales representative':'Field Sales',
+  'sales acquisitions team lead/manager':'Sales Team Lead',
+  'sales operations management':'Digital Sales',
+  'sales operations team lead/manager':'Digital Sales',
+  'smb - sales ops':'Digital Sales',
+  'smb - telesales':'Telesales',
+  // Short-form names (from hardcoded defaults or manual entry)
+  'bdm':'Field Sales',
+  'telesales mgr':'Telesales',
+  'telesales':'Telesales',
+  'digital sales':'Digital Sales',
+};
+function displayRole(role){return ROLE_MAP[(role||'').toLowerCase()]||role||'';}
 const SF_LINKS={
   agents:{
     url:'https://deliveryhero.lightning.force.com/lightning/r/Report/00ObO000006cMYjUAM/view?queryScope=userFolders',
@@ -201,13 +216,10 @@ function sb(s){return s==='active'?'var(--color-background-success)':s==='norule
 function getBP(agentId){
   const a=getAgent(agentId);
   if(!a)return null;
-  const r=a.role.toLowerCase();
-  // Flexible matching — handles both short names ('BDM') and Salesforce role names ('Field Sales Representative')
-  if(r.includes('bdm')||r.includes('field sales')||r.includes('business dev')||r.includes('account manager'))return BEST_PRACTICES['BDM'];
-  if(r.includes('telesales mgr')||r.includes('telesales manager'))return BEST_PRACTICES['Telesales Mgr'];
-  if(r.includes('telesales')||r.includes('tele sales')||r.includes('tele-sales')||r.includes('inside sales'))return BEST_PRACTICES['Telesales'];
-  if(r.includes('digital'))return BEST_PRACTICES['Telesales']; // Digital Sales uses same ops as Telesales
-  return BEST_PRACTICES[a.role]||null;
+  const d=displayRole(a.role);
+  if(d==='Field Sales'||d==='Sales Team Lead')return BEST_PRACTICES['BDM'];
+  if(d==='Telesales')return BEST_PRACTICES['Telesales'];
+  return null; // Digital Sales has no best practice template
 }
 function checkBP(rule,agentId){
   const bp=getBP(agentId);if(!bp)return null;
@@ -339,15 +351,15 @@ function parseRulesCSV(text){
 }
 
 function inferSourcesFromRole(roleName){
-  const r=roleName.toLowerCase();
-  if(r.includes('bdm')||r.includes('field sales')||r.includes('business dev')||r.includes('account manager'))
-    return['Own Research','Automated LeadGen','Import'];
-  if(r.includes('telesales mgr')||r.includes('telesales manager'))
-    return['Self Sign Up'];
-  if(r.includes('telesales')||r.includes('tele-sales')||r.includes('tele sales')||r.includes('inside sales'))
-    return['Self Sign Up','Inbound'];
-  if(r.includes('digital'))
-    return['Self Sign Up'];
+  const d=displayRole(roleName);
+  if(d==='Field Sales'||d==='Sales Team Lead')return['Own Research','Automated LeadGen','Import'];
+  if(d==='Telesales')return['Self Sign Up','Inbound'];
+  if(d==='Digital Sales')return['Self Sign Up'];
+  // Fallback: raw keyword matching for unrecognised roles
+  const r=(roleName||'').toLowerCase();
+  if(r.includes('bdm')||r.includes('field sales')||r.includes('business dev'))return['Own Research','Automated LeadGen','Import'];
+  if(r.includes('telesales')||r.includes('tele sales'))return['Self Sign Up','Inbound'];
+  if(r.includes('digital')||r.includes('sales ops'))return['Self Sign Up'];
   return[];
 }
 
@@ -549,8 +561,15 @@ function renderRuleCard(rule,agentId){
 }
 
 function renderSidebar(){
-  const roles=['All',...new Set(state.agents.map(a=>a.role))];
-  const filtered=state.agents.filter(a=>(state.roleFilter==='All'||a.role===state.roleFilter)&&(state.search===''||a.name.toLowerCase().includes(state.search.toLowerCase())));
+  // Build unique display roles in a logical order for the filter pills
+  const roleOrder=['Field Sales','Sales Team Lead','Telesales','Digital Sales'];
+  const presentRoles=roleOrder.filter(r=>state.agents.some(a=>displayRole(a.role)===r));
+  const roles=['All',...presentRoles];
+
+  const filtered=state.agents.filter(a=>{
+    const dr=displayRole(a.role);
+    return(state.roleFilter==='All'||dr===state.roleFilter)&&(state.search===''||a.name.toLowerCase().includes(state.search.toLowerCase()));
+  });
   const cnt={active:0,norules:0,incomplete:0};
   state.agents.forEach(a=>{const s=getStatus(a.id);cnt[s]=(cnt[s]||0)+1;});
   return`<div style="width:210px;min-width:210px;background:var(--color-background-secondary);border-right:1px solid var(--color-border-tertiary);display:flex;flex-direction:column;overflow:hidden;">
@@ -561,9 +580,9 @@ function renderSidebar(){
       ${roles.map(r=>`<button onclick="st({roleFilter:'${r}',selectedId:null})" style="padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid ${state.roleFilter===r?PINK:'var(--color-border-tertiary)'};background:${state.roleFilter===r?PINK:'transparent'};color:${state.roleFilter===r?'white':'var(--color-text-secondary)'};">${r}</button>`).join('')}
     </div>
     <div style="flex:1;overflow-y:auto;">
-      ${filtered.map(a=>{const s=getStatus(a.id);const sel=state.selectedId===a.id;return`<div onclick="st({selectedId:'${a.id}'})" style="padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;background:${sel?PINKL:'transparent'};border-left:3px solid ${sel?PINK:'transparent'};">
+      ${filtered.map(a=>{const s=getStatus(a.id);const sel=state.selectedId===a.id;const dr=displayRole(a.role);return`<div onclick="st({selectedId:'${a.id}'})" style="padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;background:${sel?PINKL:'transparent'};border-left:3px solid ${sel?PINK:'transparent'};">
         <div style="width:30px;height:30px;border-radius:50%;background:${sel?PINK:'var(--color-background-primary)'};color:${sel?'white':'var(--color-text-secondary)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0;border:1px solid var(--color-border-tertiary);">${getInitials(a.name)}</div>
-        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:${sel?500:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--color-text-primary);">${a.name}</div><div style="font-size:10px;color:var(--color-text-secondary);">${a.role}</div></div>
+        <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:${sel?500:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--color-text-primary);">${a.name}</div><div style="font-size:10px;color:var(--color-text-secondary);">${dr}</div></div>
         <div style="width:7px;height:7px;border-radius:50%;background:${sc(s)};flex-shrink:0;"></div>
       </div>`;}).join('')}
     </div>
@@ -610,7 +629,7 @@ function renderDashboard(){
       ${[...norules.map(a=>({...a,issue:'No rules assigned'})),...incomplete.map(a=>({...a,issue:'No account source — use Edit Profile'}))].map(a=>`<div onclick="st({selectedId:'${a.id}'})" style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--color-border-warning);cursor:pointer;">
         <div style="width:26px;height:26px;border-radius:50%;background:${sb(getStatus(a.id))};color:${sc(getStatus(a.id))};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0;">${getInitials(a.name)}</div>
         <div style="flex:1;"><div style="font-size:12px;color:var(--color-text-primary);">${a.name}</div><div style="font-size:11px;color:var(--color-text-warning);">${a.issue}</div></div>
-        <span style="font-size:11px;color:var(--color-text-secondary);">${a.role} →</span>
+        <span style="font-size:11px;color:var(--color-text-secondary);">${displayRole(a.role)} →</span>
       </div>`).join('')}
     </div>`:''}
     ${formers.length?`<div style="background:var(--color-background-danger);border:1px solid var(--color-border-danger);border-radius:var(--border-radius-lg);padding:12px 14px;margin-bottom:12px;">
@@ -651,7 +670,7 @@ function renderAgentDetail(){
       <div style="flex:1;">
         <div style="font-weight:500;font-size:15px;margin-bottom:3px;color:var(--color-text-primary);">${agent.name}</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;">
-          <span style="font-size:12px;color:var(--color-text-secondary);">${agent.role}</span>·
+          <span style="font-size:12px;color:var(--color-text-secondary);">${displayRole(agent.role)}</span>·
           <span style="font-size:12px;color:var(--color-text-secondary);">${agent.email}</span>·
           <code style="font-size:11px;background:var(--color-background-secondary);padding:1px 6px;border-radius:4px;color:var(--color-text-secondary);">${agent.alias}</code>
         </div>
@@ -749,7 +768,7 @@ function renderModal(){
       ${compat.map(a=>{const ag=getAgent(a.id);const s=getStatus(a.id);
         return`<div onclick="doReplaceFormer('${m.ruleId}','${m.formerRaId}','${a.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);cursor:pointer;" onmouseover="this.style.borderColor='${PINK}'" onmouseout="this.style.borderColor='var(--color-border-tertiary)'">
           <div style="width:32px;height:32px;border-radius:50%;background:${sb(s)};color:${sc(s)};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;">${getInitials(a.name)}</div>
-          <div style="flex:1;"><div style="font-size:13px;font-weight:500;color:var(--color-text-primary);">${a.name}</div><div style="font-size:11px;color:var(--color-text-secondary);">${a.role} · ${ag.sources.join(', ')||'No sources set'}</div></div>
+          <div style="flex:1;"><div style="font-size:13px;font-weight:500;color:var(--color-text-primary);">${a.name}</div><div style="font-size:11px;color:var(--color-text-secondary);">${displayRole(a.role)} · ${ag.sources.join(', ')||'No sources set'}</div></div>
           ${sdot(s)}
         </div>`;}).join('')}
       ${compat.length===0?`<div style="text-align:center;padding:20px;color:var(--color-text-secondary);">No compatible Sales Team members available.</div>`:''}
