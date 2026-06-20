@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SF Recommendation Rule Optimizer</title>
+<title>Digital Sales SF Recommendation Rule Optimizer</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -41,7 +41,7 @@ button{cursor:pointer;font-family:inherit;}
 <input type="file" id="agentsCSVInput" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleAgentsUpload(event)">
 <script>
 // ================================================================
-// RuleOps v1.1 — Salesforce Recommendation Rule Manager
+// DSSFRR v1.1 — Digital Sales SF Recommendation Rule Optimizer
 // Store in GitHub, host on GitHub Pages / Netlify / any static host
 // Data auto-saves to localStorage; upload CSVs anytime to refresh
 // ================================================================
@@ -698,7 +698,7 @@ function renderModal(){
       </div>
       <div style="background:var(--color-background-secondary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px;">
         <div style="font-weight:500;font-size:13px;color:var(--color-text-primary);margin-bottom:6px;">Step 2 — Upload the downloaded file here</div>
-        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Once you have the file saved on your computer (CSV, XLS, or XLSX), click below to upload it to RuleOps.</div>
+        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Once you have the file saved on your computer (CSV, XLS, or XLSX), click below to upload it to Recommendation Rules.</div>
         <button onclick="document.getElementById('${inputId}').click();st({modal:null,modalForm:null})" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;cursor:pointer;">↑ Choose CSV file to upload</button>
       </div>
     </div>`;
