@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Digital Sales SF Recommendation Rule Optimizer</title>
+<title>SF Recommendation Rule Optimizer</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -41,7 +41,7 @@ button{cursor:pointer;font-family:inherit;}
 <input type="file" id="agentsCSVInput" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleAgentsUpload(event)">
 <script>
 // ================================================================
-// DSSFRR v1.1 — Digital Sales SF Recommendation Rule Optimizer
+// RuleOps v1.1 — Salesforce Recommendation Rule Manager
 // Store in GitHub, host on GitHub Pages / Netlify / any static host
 // Data auto-saves to localStorage; upload CSVs anytime to refresh
 // ================================================================
@@ -198,7 +198,17 @@ function getStatus(aid){
 }
 function sc(s){return s==='active'?'var(--color-text-success)':s==='norules'?'var(--color-text-warning)':'var(--color-text-danger)';}
 function sb(s){return s==='active'?'var(--color-background-success)':s==='norules'?'var(--color-background-warning)':'var(--color-background-danger)';}
-function getBP(agentId){const a=getAgent(agentId);return a?BEST_PRACTICES[a.role]||null:null;}
+function getBP(agentId){
+  const a=getAgent(agentId);
+  if(!a)return null;
+  const r=a.role.toLowerCase();
+  // Flexible matching — handles both short names ('BDM') and Salesforce role names ('Field Sales Representative')
+  if(r.includes('bdm')||r.includes('field sales')||r.includes('business dev')||r.includes('account manager'))return BEST_PRACTICES['BDM'];
+  if(r.includes('telesales mgr')||r.includes('telesales manager'))return BEST_PRACTICES['Telesales Mgr'];
+  if(r.includes('telesales')||r.includes('tele sales')||r.includes('tele-sales')||r.includes('inside sales'))return BEST_PRACTICES['Telesales'];
+  if(r.includes('digital'))return BEST_PRACTICES['Telesales']; // Digital Sales uses same ops as Telesales
+  return BEST_PRACTICES[a.role]||null;
+}
 function checkBP(rule,agentId){
   const bp=getBP(agentId);if(!bp)return null;
   const missingOps=bp.ops.filter(op=>!rule.ops.includes(op));
@@ -256,17 +266,20 @@ function parseRulesCSV(text){
   if(!lines.length)throw new Error('Empty file');
   const hdrs=parseCSVRow(lines[0]).map(h=>h.toLowerCase().trim());
   const col={
-    ruleName:hdrs.indexOf('rule name'),
-    leadSource:hdrs.indexOf('lead source'),
-    bizType:hdrs.indexOf('business type'),
-    vertical:hdrs.indexOf('vertical'),
-    locality:hdrs.indexOf('locality'),
-    grade:hdrs.indexOf('vendor grade'),
-    ops:hdrs.indexOf('applicable for operation'),
-    raId:hdrs.indexOf('recommendation agent name'),
-    agentName:hdrs.findIndex(h=>h.includes('full name')),
-    rrId:hdrs.indexOf('recommendation rule agent id'),
+    ruleName:findCol(hdrs,'rule name'),
+    leadSource:findCol(hdrs,'lead source'),
+    bizType:findCol(hdrs,'business type'),
+    vertical:findCol(hdrs,'vertical'),
+    locality:findCol(hdrs,'locality'),
+    grade:findCol(hdrs,'vendor grade'),
+    ops:findCol(hdrs,'applicable for operation'),
+    raId:findCol(hdrs,'recommendation agent name'),
+    // Handle both 'sales agent: full name' and 'sales agent full name'
+    agentName:hdrs.findIndex(h=>h.includes('full name')&&(h.includes('sales agent')||h.includes('agent'))),
+    rrId:findCol(hdrs,'recommendation rule agent id'),
   };
+  // Fallback: any column with 'full name' if the above didn't find it
+  if(col.agentName<0)col.agentName=hdrs.findIndex(h=>h.includes('full name'));
   if(col.ruleName<0||col.agentName<0)throw new Error('Columns "Rule Name" and "Sales Agent: Full Name" are required');
   const byRule=new Map();
   let newIdx=0;
@@ -304,33 +317,69 @@ function parseRulesCSV(text){
   return result;
 }
 
+function inferSourcesFromRole(roleName){
+  const r=roleName.toLowerCase();
+  if(r.includes('bdm')||r.includes('field sales')||r.includes('business dev')||r.includes('account manager'))
+    return['Own Research','Automated LeadGen','Import'];
+  if(r.includes('telesales mgr')||r.includes('telesales manager'))
+    return['Self Sign Up'];
+  if(r.includes('telesales')||r.includes('tele-sales')||r.includes('tele sales')||r.includes('inside sales'))
+    return['Self Sign Up','Inbound'];
+  if(r.includes('digital'))
+    return['Self Sign Up'];
+  return[];
+}
+
 function parseAgentsCSV(text){
   const lines=text.replace(/\r/g,'').split('\n').filter(l=>l.trim());
   if(!lines.length)throw new Error('Empty file');
   const hdrs=parseCSVRow(lines[0]).map(h=>h.toLowerCase().trim());
+
+  // Guard: detect if user accidentally uploaded the rules file
+  if(hdrs.some(h=>h.includes('applicable for operation')||h.includes('recommendation agent name')||h==='rule name')){
+    throw new Error('This looks like a Recommendation Rules file, not a Sales Team file. Please use ↑ Upload Rules for this file, and upload your Sales Team Details report here instead.');
+  }
+
   const col={
-    name:findCol(hdrs,'name','full name','agent name','sales agent: full name','sales agent full name','user: full name'),
-    sfId:findCol(hdrs,'sf_id','user id','userid','salesforce id','sf id','id'),
+    name:findCol(hdrs,'full name','name','sales agent: full name','sales agent full name','user: full name','agent name'),
+    sfId:findCol(hdrs,'user id','sf_id','userid','salesforce id','sf id','user: id'),
     email:findCol(hdrs,'email','email address','user: email'),
-    alias:findCol(hdrs,'sf_alias','alias','user: alias'),
-    role:findCol(hdrs,'role','user role','profile','title'),
-    source:findCol(hdrs,'account source','source','lead source'),
+    alias:findCol(hdrs,'alias','sf_alias','user: alias'),
+    // Prefer 'central job role' — avoid 'job role vertical' which holds Restaurant/Shop not the role name
+    role:hdrs.findIndex(h=>(h==='central job role'||h==='role'||h==='user role'||h==='position'||h.includes('title'))&&!h.includes('vertical')),
+    // Source column — may not exist in all Salesforce exports
+    source:findCol(hdrs,'account source','lead source allocation','source allocation'),
     bizType:findCol(hdrs,'business type','business types','biz type'),
   };
-  if(col.name<0)throw new Error('Could not find a name column. Expected "name", "Full Name", or "Sales Agent: Full Name".');
+
+  if(col.name<0)throw new Error('Could not find a name column. Expected "Full Name", "name", or similar.');
+
+  const seen=new Set();
   const agents=[];
   for(let i=1;i<lines.length;i++){
     const row=parseCSVRow(lines[i]);
     if(!row.some(c=>c))continue;
     const name=(col.name>=0?row[col.name]:'').trim();
-    if(!name)continue;
+    if(!name||seen.has(name))continue;
+    seen.add(name);
+
+    const roleName=col.role>=0?(row[col.role]||'').trim():'';
+
+    // Source: try explicit column first; fall back to role-based inference
+    let sources=[];
+    if(col.source>=0&&row[col.source]){
+      const raw=row[col.source].trim();
+      sources=raw.includes(';')?splitSemi(raw):splitComma(raw);
+    }
+    if(!sources.length&&roleName)sources=inferSourcesFromRole(roleName);
+
     agents.push({
       id:col.sfId>=0&&row[col.sfId]?row[col.sfId].trim():('agent-'+Date.now()+'-'+i),
       name,
       email:col.email>=0?(row[col.email]||'').trim():'',
       alias:col.alias>=0?(row[col.alias]||'').trim():'',
-      role:col.role>=0?(row[col.role]||'').trim():'',
-      sources:col.source>=0?splitComma(row[col.source]):[],
+      role:roleName,
+      sources,
       bizTypes:col.bizType>=0?splitSemi(row[col.bizType]):[],
     });
   }
@@ -698,7 +747,7 @@ function renderModal(){
       </div>
       <div style="background:var(--color-background-secondary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px;">
         <div style="font-weight:500;font-size:13px;color:var(--color-text-primary);margin-bottom:6px;">Step 2 — Upload the downloaded file here</div>
-        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Once you have the file saved on your computer (CSV, XLS, or XLSX), click below to upload it to Recommendation Rules.</div>
+        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Once you have the file saved on your computer (CSV, XLS, or XLSX), click below to upload it to RuleOps.</div>
         <button onclick="document.getElementById('${inputId}').click();st({modal:null,modalForm:null})" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;cursor:pointer;">↑ Choose CSV file to upload</button>
       </div>
     </div>`;
