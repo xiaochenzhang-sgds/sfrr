@@ -223,6 +223,26 @@ function findCol(hdrs,...names){
   return -1;
 }
 
+// Normalise a name for fuzzy matching — lowercase, collapse hyphens/spaces
+function normName(s){return(s||'').toLowerCase().replace(/[-–—]/g,' ').replace(/\s+/g,' ').trim();}
+
+// After either CSV upload, re-scan all rule assignments and try to (re-)match
+// agents using normalised names — fixes mismatches between Salesforce report exports
+function rematchRuleAgents(){
+  state.rules=state.rules.map(r=>({
+    ...r,
+    assignments:r.assignments.map(a=>{
+      // Already matched and agent still in team → keep
+      if(a.agentId&&state.agents.find(ag=>ag.id===a.agentId)&&!a.isFormer)return a;
+      // Try to find by normalised name
+      const match=state.agents.find(ag=>normName(ag.name)===normName(a.agentName));
+      if(match)return{...a,agentId:match.id,isFormer:false};
+      // No match → mark as former
+      return{...a,agentId:null,isFormer:true};
+    })
+  }));
+}
+
 // Converts any uploaded file (CSV / XLS / XLSX) to a CSV text string
 function parseFileAsCSV(file){
   return new Promise((resolve,reject)=>{
@@ -302,7 +322,8 @@ function parseRulesCSV(text){
     }
     const agentName=(col.agentName>=0?row[col.agentName]:'').trim();
     if(!agentName)continue;
-    const matchedAgent=state.agents.find(a=>a.name===agentName);
+    // Use normalised name matching to handle capitalisation and hyphen differences
+    const matchedAgent=state.agents.find(a=>normName(a.name)===normName(agentName));
     byRule.get(key).assignments.push({
       agentId:matchedAgent?matchedAgent.id:null,
       agentName,
@@ -1055,7 +1076,9 @@ window.handleRulesUpload=async function(event){
   try{
     const text=await parseFileAsCSV(file);
     const newRules=parseRulesCSV(text);
-    state.rules=newRules;persist();
+    state.rules=newRules;
+    rematchRuleAgents();
+    persist();
     showToast(`✓ Loaded ${newRules.length} rules from "${file.name}"`, 'success');
   }catch(err){showToast('Error parsing rules file: '+err.message,'error');}
   event.target.value='';
@@ -1066,7 +1089,9 @@ window.handleAgentsUpload=async function(event){
   try{
     const text=await parseFileAsCSV(file);
     const newAgents=parseAgentsCSV(text);
-    state.agents=newAgents;persist();
+    state.agents=newAgents;
+    rematchRuleAgents(); // re-reconcile existing rules against new team list
+    persist();
     showToast(`✓ Loaded ${newAgents.length} Sales Team members from "${file.name}"`, 'success');
   }catch(err){showToast('Error parsing Sales Team file: '+err.message,'error');}
   event.target.value='';
@@ -1080,6 +1105,7 @@ window.resetDefaults=function(){
 
 // ---- INIT ----
 loadState();
+rematchRuleAgents();
 render();
 </script>
 </body>
