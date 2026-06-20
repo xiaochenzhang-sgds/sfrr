@@ -569,7 +569,7 @@ function renderSidebar(){
   const filtered=state.agents.filter(a=>{
     const dr=displayRole(a.role);
     return(state.roleFilter==='All'||dr===state.roleFilter)&&(state.search===''||a.name.toLowerCase().includes(state.search.toLowerCase()));
-  });
+  }).sort((a,b)=>a.name.localeCompare(b.name));
   const cnt={active:0,norules:0,incomplete:0};
   state.agents.forEach(a=>{const s=getStatus(a.id);cnt[s]=(cnt[s]||0)+1;});
   return`<div style="width:210px;min-width:210px;background:var(--color-background-secondary);border-right:1px solid var(--color-border-tertiary);display:flex;flex-direction:column;overflow:hidden;">
