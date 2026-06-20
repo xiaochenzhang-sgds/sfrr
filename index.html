@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Digital Sales SF Recommendation Rule Optimizer</title>
+<title>SF Recommendation Rule Optimizer</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root {
   --color-background-primary:#ffffff;--color-background-secondary:#f7f8fa;--color-background-tertiary:#f0f2f5;
@@ -36,11 +37,11 @@ button{cursor:pointer;font-family:inherit;}
 </head>
 <body>
 <div id="app" style="height:100vh;display:flex;flex-direction:column;position:relative;"></div>
-<input type="file" id="rulesCSVInput" accept=".csv" style="display:none" onchange="handleRulesUpload(event)">
-<input type="file" id="agentsCSVInput" accept=".csv" style="display:none" onchange="handleAgentsUpload(event)">
+<input type="file" id="rulesCSVInput" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleRulesUpload(event)">
+<input type="file" id="agentsCSVInput" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleAgentsUpload(event)">
 <script>
 // ================================================================
-// SFRROPMZ v1.1 — Digital Sales SF Recommendation Rule Optimizer
+// RuleOps v1.1 — Salesforce Recommendation Rule Manager
 // Store in GitHub, host on GitHub Pages / Netlify / any static host
 // Data auto-saves to localStorage; upload CSVs anytime to refresh
 // ================================================================
@@ -205,7 +206,37 @@ function checkBP(rule,agentId){
   const missingBiz=bp.bizTypes.filter(b=>!rule.bizTypes.includes(b));
   return{ok:!missingOps.length&&!missingSrc.length&&!missingBiz.length,missingOps,missingSrc,missingBiz,bp};
 }
-// ---- CSV PARSING ----
+// ---- FILE PARSING HELPERS ----
+// Flexible column finder — tries multiple header name variations
+function findCol(hdrs,...names){
+  for(const n of names){const i=hdrs.findIndex(h=>h===n||h.includes(n));if(i>=0)return i;}
+  return -1;
+}
+
+// Converts any uploaded file (CSV / XLS / XLSX) to a CSV text string
+function parseFileAsCSV(file){
+  return new Promise((resolve,reject)=>{
+    const ext=file.name.split('.').pop().toLowerCase();
+    const reader=new FileReader();
+    if(ext==='csv'){
+      reader.onload=e=>resolve(e.target.result);
+      reader.onerror=()=>reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    }else if(ext==='xls'||ext==='xlsx'){
+      reader.onload=e=>{
+        try{
+          const wb=XLSX.read(e.target.result,{type:'binary'});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          resolve(XLSX.utils.sheet_to_csv(ws));
+        }catch(err){reject(new Error('Failed to parse Excel file: '+err.message));}
+      };
+      reader.onerror=()=>reject(new Error('Failed to read file'));
+      reader.readAsBinaryString(file);
+    }else{
+      reject(new Error('Unsupported file type. Please use CSV, XLS, or XLSX.'));
+    }
+  });
+}
 function parseCSVRow(line){
   const res=[];let cur='',inQ=false;
   for(let i=0;i<line.length;i++){
@@ -278,15 +309,15 @@ function parseAgentsCSV(text){
   if(!lines.length)throw new Error('Empty file');
   const hdrs=parseCSVRow(lines[0]).map(h=>h.toLowerCase().trim());
   const col={
-    name:hdrs.indexOf('name'),
-    sfId:hdrs.indexOf('sf_id'),
-    email:hdrs.indexOf('email'),
-    alias:hdrs.indexOf('sf_alias'),
-    role:hdrs.indexOf('role'),
-    source:hdrs.findIndex(h=>h.includes('account source')||h==='source'),
-    bizType:hdrs.findIndex(h=>h.includes('business type')||h==='business types'),
+    name:findCol(hdrs,'name','full name','agent name','sales agent: full name','sales agent full name','user: full name'),
+    sfId:findCol(hdrs,'sf_id','user id','userid','salesforce id','sf id','id'),
+    email:findCol(hdrs,'email','email address','user: email'),
+    alias:findCol(hdrs,'sf_alias','alias','user: alias'),
+    role:findCol(hdrs,'role','user role','profile','title'),
+    source:findCol(hdrs,'account source','source','lead source'),
+    bizType:findCol(hdrs,'business type','business types','biz type'),
   };
-  if(col.name<0)throw new Error('Column "name" is required in Sales Team CSV');
+  if(col.name<0)throw new Error('Could not find a name column. Expected "name", "Full Name", or "Sales Agent: Full Name".');
   const agents=[];
   for(let i=1;i<lines.length;i++){
     const row=parseCSVRow(lines[i]);
@@ -308,21 +339,44 @@ function parseAgentsCSV(text){
 }
 
 // ---- EXPORT ----
-function exportCSV(){
-  const hdr='Rule Name,Lead Source,Business Type,Vertical,Locality,Vendor Grade,Applicable for Operation,Recommendation Agent Name,Sales Agent: Full Name,Recommendation Rule Agent ID';
-  const rows=[];
+function exportExcel(){
+  const headers=['Rule Name','Lead Source','Business Type','Vertical','Locality','Vendor Grade','Applicable for Operation','Recommendation Agent Name','Sales Agent: Full Name','Recommendation Rule Agent ID'];
+  const existingRows=[];
+  const newRows=[];
+
   for(const r of state.rules){
     for(const a of r.assignments){
-      const loc=r.localities.length?`"${r.localities.join(', ')}"` :'';
-      rows.push([r.id.startsWith('NEW')?'':r.id,r.sources.join('; '),r.bizTypes.join('; '),r.vertical.join('; '),loc,r.grades.join('; '),r.ops.join('; '),a.raId||'',a.agentName,a.rrId||''].join(','));
+      const loc=r.localities.length?r.localities.join(', '):'';
+      const row=[
+        r.id.startsWith('NEW')?'':r.id,
+        r.sources.join('; '),
+        r.bizTypes.join('; '),
+        r.vertical.join('; '),
+        loc,
+        r.grades.join('; '),
+        r.ops.join('; '),
+        a.raId||'',
+        a.agentName,
+        a.rrId||(a.agentId||'')
+      ];
+      if(r.id.startsWith('NEW'))newRows.push(row);
+      else existingRows.push(row);
     }
   }
-  const content=[hdr,...rows].join('\n');
-  const blob=new Blob([content],{type:'text/csv;charset=utf-8;'});
-  const url=URL.createObjectURL(blob);
-  const el=document.createElement('a');
-  el.href=url;el.download=`recommendation_rules_${new Date().toISOString().slice(0,10)}.csv`;
-  document.body.appendChild(el);el.click();document.body.removeChild(el);URL.revokeObjectURL(url);
+
+  const colWidths=[{wch:12},{wch:30},{wch:32},{wch:12},{wch:55},{wch:22},{wch:55},{wch:18},{wch:30},{wch:22}];
+
+  const wb=XLSX.utils.book_new();
+
+  const ws1=XLSX.utils.aoa_to_sheet([headers,...existingRows]);
+  ws1['!cols']=colWidths;
+  XLSX.utils.book_append_sheet(wb,ws1,'Existing Rules');
+
+  const ws2=XLSX.utils.aoa_to_sheet([headers,...newRows]);
+  ws2['!cols']=colWidths;
+  XLSX.utils.book_append_sheet(wb,ws2,'New Rules');
+
+  XLSX.writeFile(wb,`recommendation_rules_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 // ---- TOAST ----
@@ -644,7 +698,7 @@ function renderModal(){
       </div>
       <div style="background:var(--color-background-secondary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px 18px;">
         <div style="font-weight:500;font-size:13px;color:var(--color-text-primary);margin-bottom:6px;">Step 2 — Upload the downloaded file here</div>
-        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Once you have the CSV file saved on your computer, click below to upload it to the Optimizer.</div>
+        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">Once you have the file saved on your computer (CSV, XLS, or XLSX), click below to upload it to RuleOps.</div>
         <button onclick="document.getElementById('${inputId}').click();st({modal:null,modalForm:null})" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;cursor:pointer;">↑ Choose CSV file to upload</button>
       </div>
     </div>`;
@@ -687,9 +741,9 @@ function renderHeader(){
         <span style="font-size:12px;">↑ Upload Rules</span>
         <span style="font-size:9px;opacity:0.65;">keep rules in sync</span>
       </button>
-      <button onclick="exportCSV()" style="${btnBase}padding:5px 14px;background:${PINK};color:white;border:none;">
-        <span style="font-size:12px;font-weight:500;">↓ Export CSV</span>
-        <span style="font-size:9px;opacity:0.8;">upload to Salesforce</span>
+      <button onclick="exportExcel()" style="${btnBase}padding:5px 14px;background:${PINK};color:white;border:none;">
+        <span style="font-size:12px;font-weight:500;">↓ Export Excel</span>
+        <span style="font-size:9px;opacity:0.8;">saves as 2-tab .xlsx</span>
       </button>
       <button onclick="st({showHelp:!state.showHelp,selectedId:null})" title="How to use SF Recommendation Rule Optimizer" style="padding:6px 12px;border:1px solid ${state.showHelp?PINK:'var(--color-border-secondary)'};background:${state.showHelp?PINKL:'transparent'};color:${state.showHelp?PINK:'var(--color-text-secondary)'};border-radius:var(--border-radius-md);font-size:12px;font-weight:600;">💡 READ ME</button>
       <button onclick="resetDefaults()" title="Reset all data to defaults" style="padding:6px 8px;border:1px solid var(--color-border-secondary);background:transparent;color:var(--color-text-secondary);border-radius:var(--border-radius-md);font-size:12px;">↺</button>
@@ -698,175 +752,220 @@ function renderHeader(){
 }
 
 function renderHelp(){
-  const sec=(icon,title,content)=>`<div style="background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:18px 20px;margin-bottom:14px;">
+  const sec=(icon,title,body)=>`<div style="background:var(--color-background-primary);border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:18px 20px;margin-bottom:14px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
       <span style="font-size:20px;">${icon}</span>
-      <span style="font-weight:500;font-size:15px;color:var(--color-text-primary);">${title}</span>
+      <span style="font-weight:600;font-size:15px;color:var(--color-text-primary);">${title}</span>
     </div>
-    <div style="font-size:13px;color:var(--color-text-primary);line-height:1.65;">${content}</div>
+    <div style="font-size:13px;color:var(--color-text-primary);line-height:1.75;">${body}</div>
   </div>`;
-  const code=t=>`<code style="background:var(--color-background-secondary);padding:2px 6px;border-radius:4px;font-size:11px;">${t}</code>`;
-  const ul=items=>`<ul style="padding-left:18px;margin-top:6px;display:flex;flex-direction:column;gap:5px;">${items.map(i=>`<li>${i}</li>`).join('')}</ul>`;
-  const note=(text,type='info')=>`<div style="background:var(--color-background-${type});border:1px solid var(--color-border-${type});border-radius:var(--border-radius-md);padding:8px 12px;font-size:12px;color:var(--color-text-${type});margin-top:10px;">${text}</div>`;
+  const code=t=>`<code style="background:var(--color-background-secondary);padding:2px 7px;border-radius:4px;font-size:11px;">${t}</code>`;
+  const ul=items=>`<ul style="padding-left:18px;margin-top:8px;display:flex;flex-direction:column;gap:6px;">${items.map(i=>`<li>${i}</li>`).join('')}</ul>`;
+  const note=(text,type)=>`<div style="background:var(--color-background-${type});border:1px solid var(--color-border-${type});border-radius:var(--border-radius-md);padding:9px 13px;font-size:12px;color:var(--color-text-${type});margin-top:10px;">${text}</div>`;
+  const sflink=(url,label,icon)=>`<a href="${url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;background:var(--color-text-info);color:white;border-radius:var(--border-radius-md);font-size:12px;font-weight:500;text-decoration:none;margin-top:8px;">${icon} ${label} ↗</a>`;
+  const sfbox=(url,label,icon,hint)=>`<div style="margin-top:10px;background:var(--color-background-info);border:1px solid var(--color-border-info);border-radius:var(--border-radius-md);padding:11px 13px;">
+    <div style="font-size:12px;color:var(--color-text-info);font-weight:500;margin-bottom:6px;">📊 Download from Salesforce first</div>
+    ${sflink(url,label,icon)}
+    <div style="font-size:11px;color:var(--color-text-info);margin-top:8px;opacity:.9;">${hint}</div>
+  </div>`;
 
   return`<div style="padding:20px 24px;overflow-y:auto;height:100%;background:var(--color-background-tertiary);">
-    <div style="max-width:720px;margin:0 auto;">
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
-        <button onclick="st({showHelp:false})" style="background:none;border:none;font-size:13px;color:var(--color-text-secondary);cursor:pointer;padding:0;">← Back</button>
+    <div style="max-width:740px;margin:0 auto;">
+
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+        <button onclick="st({showHelp:false})" style="background:none;border:none;font-size:13px;color:var(--color-text-secondary);cursor:pointer;padding:0;white-space:nowrap;">← Back</button>
         <div>
-          <div style="font-weight:600;font-size:18px;color:var(--color-text-primary);">How to use SF Recommendation Rule Optimizer ⚡</div>
-          <div style="font-size:12px;color:var(--color-text-secondary);margin-top:2px;">Quick guide to managing your Salesforce recommendation rules</div>
+          <div style="font-weight:700;font-size:18px;color:var(--color-text-primary);">How to use SF Recommendation Rule Optimizer ⚡</div>
+          <div style="font-size:12px;color:var(--color-text-secondary);margin-top:3px;">Manage your Salesforce recommendation rules without touching Salesforce directly</div>
         </div>
       </div>
 
-      ${sec('🗺️','Overview',`
-        SF Recommendation Rule Optimizer lets you manage Salesforce recommendation rules from your browser — no need to log into Salesforce for every change. You make adjustments here, export a CSV, and upload that file to Salesforce via Data Loader or bulk import.
-        <br><br><strong>Typical workflow:</strong>
-        <ol style="padding-left:20px;margin-top:8px;display:flex;flex-direction:column;gap:5px;">
-          <li>Export your current rules from Salesforce → click <strong>↑ Upload Rules</strong> to sync the app</li>
-          <li>Make adjustments — add Sales Team members to rules, fix localities, update operations</li>
-          <li>Click <strong>↓ Export CSV</strong> and upload the file back to Salesforce</li>
+      ${sec('🗺️','Overview & workflow',`
+        This tool lets you view, adjust, and manage Salesforce recommendation rules from your browser.
+        You make your changes here, export an Excel file, then upload each sheet to Salesforce separately.
+        <br><br>
+        <strong>Standard workflow:</strong>
+        <ol style="padding-left:20px;margin-top:8px;display:flex;flex-direction:column;gap:7px;">
+          <li>Go to the <strong>Dashboard</strong> and use the blue Salesforce report links to download the latest Sales Team and Rules data</li>
+          <li>Click <strong>↑ Upload Sales Team</strong> to refresh the team list (do this whenever the team changes)</li>
+          <li>Click <strong>↑ Upload Rules</strong> to load the current live rules from Salesforce</li>
+          <li>Make your adjustments — assign rules, fix localities, update operations, add new rules</li>
+          <li>Click <strong>↓ Export Excel</strong> to download a two-tab .xlsx file</li>
+          <li>Upload <strong>Tab 1 — Existing Rules</strong> to Salesforce to apply edits to existing records</li>
+          <li>Upload <strong>Tab 2 — New Rules</strong> separately to create brand-new rule records in Salesforce</li>
         </ol>
+        ${note('ℹ All uploads support CSV, XLS, and XLSX formats — Salesforce report exports in any of these formats work directly with no renaming required.','info')}
       `)}
 
-      ${sec('🔘','Header buttons',`
-        <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">↑ Upload Sales Team <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— update Sales Team details</span></div>
-            <div>Replaces the Sales Team list with members from your ${code('Agent_details.csv')}. Use this to keep the Sales Team list current — for any team change, role update, or when you notice someone missing from the sidebar. Required column: ${code('name')}. Supported columns: name, sf_id, email, sf_alias, role, account source, business type.</div>
-            <div style="margin-top:10px;padding:10px 12px;background:var(--color-background-info);border:1px solid var(--color-border-info);border-radius:var(--border-radius-md);">
-              <div style="font-size:12px;color:var(--color-text-info);margin-bottom:8px;font-weight:500;">📊 Download from Salesforce first</div>
-              <a href="${SF_LINKS.agents.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;padding:6px 12px;background:var(--color-text-info);color:white;border-radius:var(--border-radius-md);font-size:12px;font-weight:500;text-decoration:none;">👥 ${SF_LINKS.agents.label} ↗</a>
-              <div style="font-size:11px;color:var(--color-text-info);margin-top:8px;">In Salesforce: click <strong>Export</strong> → <strong>Export Details</strong> → <strong>CSV</strong></div>
+      ${sec('🔘','Header buttons — what each one does',`
+        <div style="display:flex;flex-direction:column;gap:12px;margin-top:4px;">
+
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:14px 16px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">↑ Upload Sales Team <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— update Sales Team details</span></div>
+            <div>Replaces the team list in the app with members from your uploaded file. Use this any time someone joins, leaves, changes role, or you notice someone missing — not just for new joiners.</div>
+            <div style="margin-top:8px;"><strong>Accepted formats:</strong> ${code('.csv')} ${code('.xls')} ${code('.xlsx')}</div>
+            <div style="margin-top:10px;"><strong>Flexible column matching</strong> — the app auto-recognises Salesforce's own export column names. No manual renaming needed:</div>
+            <table style="margin-top:8px;font-size:12px;width:100%;border-collapse:collapse;">
+              <tr style="background:var(--color-background-secondary);">
+                <th style="padding:6px 8px;text-align:left;border:1px solid var(--color-border-tertiary);">Field</th>
+                <th style="padding:6px 8px;text-align:left;border:1px solid var(--color-border-tertiary);">Accepted column names</th>
+              </tr>
+              <tr><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">Name</td><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">${code('name')} ${code('Full Name')} ${code('Sales Agent: Full Name')} ${code('User: Full Name')}</td></tr>
+              <tr style="background:var(--color-background-secondary);"><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">User ID</td><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">${code('sf_id')} ${code('User ID')} ${code('Salesforce ID')}</td></tr>
+              <tr><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">Email</td><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">${code('email')} ${code('Email Address')} ${code('User: Email')}</td></tr>
+              <tr style="background:var(--color-background-secondary);"><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">Alias</td><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">${code('sf_alias')} ${code('Alias')} ${code('User: Alias')}</td></tr>
+              <tr><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">Role</td><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">${code('role')} ${code('User Role')} ${code('Profile')} ${code('Title')}</td></tr>
+              <tr style="background:var(--color-background-secondary);"><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">Account Source</td><td style="padding:5px 8px;border:1px solid var(--color-border-tertiary);">${code('account source')} ${code('source')} ${code('lead source')}</td></tr>
+            </table>
+            ${sfbox(SF_LINKS.agents.url,'Sales Team Details Report','👥','In Salesforce: click Export at the top of the report → Export Details → CSV. Then upload the downloaded file here.')}
+            ${note('⚠ Uploading a new file replaces the entire team list. Existing rule assignments that match member names are preserved.','warning')}
+          </div>
+
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:14px 16px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">↑ Upload Rules <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— keep rules in sync</span></div>
+            <div>Replaces all rules in the app with the live data from your Salesforce export. Use this whenever Salesforce is the source of truth — for example after the SF team has processed a previous import and assigned new Rule IDs.</div>
+            <div style="margin-top:8px;"><strong>Accepted formats:</strong> ${code('.csv')} ${code('.xls')} ${code('.xlsx')}</div>
+            <div style="margin-top:8px;"><strong>Expected columns:</strong> Rule Name · Lead Source · Business Type · Vertical *(optional)* · Locality · Vendor Grade · Applicable for Operation · Recommendation Agent Name · Sales Agent: Full Name · Recommendation Rule Agent ID</div>
+            ${sfbox(SF_LINKS.rules.url,'Recommendation Rules Report','📋','In Salesforce: click Export → Export Details → CSV. Then upload the downloaded file here.')}
+            ${note('ℹ The Vertical column is a new field added in this tool. If your Salesforce export does not include it yet, rules will still load correctly — Vertical will just be blank until you set it manually in the app.','info')}
+          </div>
+
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:14px 16px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">↓ Export Excel <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— saves as 2-tab .xlsx</span></div>
+            <div>Downloads a <strong>.xlsx Excel file</strong> with two separate tabs so you can upload them independently to Salesforce:</div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+              <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:11px 13px;">
+                <div style="font-weight:500;margin-bottom:4px;">Tab 1 — Existing Rules</div>
+                <div style="font-size:12px;color:var(--color-text-secondary);">Every rule already in Salesforce, including any edits you made in the app. Rule IDs are preserved. Upload this tab to Salesforce to update existing records.</div>
+              </div>
+              <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:11px 13px;">
+                <div style="font-weight:500;margin-bottom:4px;">Tab 2 — New Rules</div>
+                <div style="font-size:12px;color:var(--color-text-secondary);">Only rules you created in this app. The Rule Name column is blank — Salesforce auto-generates the Rule ID on import. Upload this tab separately to create new records.</div>
+              </div>
             </div>
-            ${note('⚠ Uploading a new Sales Team file replaces the entire team list. Existing rule assignments that match Sales Team member names will still be recognised.','warning')}
+            <div style="margin-top:10px;font-size:12px;color:var(--color-text-secondary);">For new Sales Team member assignments, the Recommendation Rule Agent ID is automatically populated with their Salesforce User ID so Salesforce can link the record correctly on import.</div>
+            ${note('⚠ Removed Sales Team members are not included in the export. Delete their Salesforce records manually after importing.','warning')}
           </div>
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">↑ Upload Rules <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— keep rules in sync</span></div>
-            <div>Replaces the current rules with data from a Salesforce export (${code('existing_RR.csv')} format). Use this to pull in the latest state from Salesforce — for example after the SF team has processed a previous import and assigned new Rule IDs.</div>
-            <div style="margin-top:10px;padding:10px 12px;background:var(--color-background-info);border:1px solid var(--color-border-info);border-radius:var(--border-radius-md);">
-              <div style="font-size:12px;color:var(--color-text-info);margin-bottom:8px;font-weight:500;">📊 Download from Salesforce first</div>
-              <a href="${SF_LINKS.rules.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;padding:6px 12px;background:var(--color-text-info);color:white;border-radius:var(--border-radius-md);font-size:12px;font-weight:500;text-decoration:none;">📋 ${SF_LINKS.rules.label} ↗</a>
-              <div style="font-size:11px;color:var(--color-text-info);margin-top:8px;">In Salesforce: click <strong>Export</strong> → <strong>Export Details</strong> → <strong>CSV</strong></div>
-            </div>
-            ${note('ℹ The Vertical column is a new addition. If your Salesforce export does not include it, rules will load fine — they just won\'t have a vertical set.','info')}
+
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:14px 16px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">💡 READ ME <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— you are here</span></div>
+            <div>Opens and closes this guide. The button highlights in pink when the guide is open. Click <strong>← Back</strong> at the top or click the button again to return to the app.</div>
           </div>
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">↓ Export CSV <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— upload to Salesforce</span></div>
-            <div>Downloads all current rules as a CSV in the exact Salesforce bulk update format. Existing rules keep their Salesforce IDs. New rules you created export with a blank Rule Name — Salesforce generates the ID on import. New agent assignments export with blank RA/RR IDs — Salesforce generates those too.</div>
-            ${note('⚠ Removed Sales Team members do not appear in the export. Delete their Salesforce record manually after importing.','warning')}
-          </div>
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">? Help <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— you are here</span></div>
-            <div>Opens and closes this help page.</div>
-          </div>
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">↺ Reset <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— wipe and start fresh</span></div>
-            <div>Clears all data from your browser and reloads the original pre-loaded team and rules. Use if something looks wrong or you want to demo with clean data.</div>
-            ${note('⚠ Cannot be undone. All uploads, edits, and changes are lost.','danger')}
+
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:14px 16px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:8px;">↺ Reset <span style="font-size:11px;font-weight:400;color:var(--color-text-secondary);">— wipe and start fresh</span></div>
+            <div>Clears all stored data from your browser and reloads the original pre-loaded team and rules. Use this if something looks wrong, you uploaded the wrong file, or you want to start fresh.</div>
+            ${note('⚠ Cannot be undone. All uploads, edits, new rules, and profile changes are permanently cleared.','danger')}
           </div>
         </div>
       `)}
 
       ${sec('🚦','Status dots — what the colours mean',`
-        Every Sales Team member in the sidebar has a coloured dot:
-        <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+        Every Sales Team member in the sidebar shows a coloured dot indicating their rule status at a glance:
+        <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">
           <div style="display:flex;align-items:flex-start;gap:12px;">
-            <div style="width:10px;height:10px;border-radius:50%;background:var(--color-text-success);flex-shrink:0;margin-top:3px;"></div>
-            <div><strong>Green — Active.</strong> Sales Team member has at least one recommendation rule assigned. Leads will flow to them correctly.</div>
+            <div style="width:11px;height:11px;border-radius:50%;background:var(--color-text-success);flex-shrink:0;margin-top:2px;"></div>
+            <div><strong>Green — Active.</strong> This member has at least one recommendation rule assigned. Leads will be routed to them correctly in Salesforce.</div>
           </div>
           <div style="display:flex;align-items:flex-start;gap:12px;">
-            <div style="width:10px;height:10px;border-radius:50%;background:var(--color-text-warning);flex-shrink:0;margin-top:3px;"></div>
-            <div><strong>Amber — No rules.</strong> Profile is set up but no rules assigned yet. Leads will not be auto-routed to them until a rule is created.</div>
+            <div style="width:11px;height:11px;border-radius:50%;background:var(--color-text-warning);flex-shrink:0;margin-top:2px;"></div>
+            <div><strong>Amber — No rules.</strong> Profile is complete but no rules are assigned yet. Leads will <em>not</em> be auto-routed to this member until at least one rule is created and exported to Salesforce.</div>
           </div>
           <div style="display:flex;align-items:flex-start;gap:12px;">
-            <div style="width:10px;height:10px;border-radius:50%;background:var(--color-text-danger);flex-shrink:0;margin-top:3px;"></div>
-            <div><strong>Red — Incomplete.</strong> No account source has been set. Click the Sales Team member → use <strong>Edit Profile</strong> to configure them before assigning rules.</div>
+            <div style="width:11px;height:11px;border-radius:50%;background:var(--color-text-danger);flex-shrink:0;margin-top:2px;"></div>
+            <div><strong>Red — Incomplete profile.</strong> No account source has been set for this member. Click their name → <strong>Edit Profile</strong> to configure them before assigning any rules.</div>
           </div>
         </div>
       `)}
 
       ${sec('👥','Sidebar — navigating the team',`
         ${ul([
-          '<strong>Search box</strong> — type a name to filter the list instantly.',
-          '<strong>Role filter pills</strong> (All / BDM / Telesales / Digital Sales) — click to show only that segment.',
-          '<strong>Click any Sales Team member</strong> — opens their profile and rules on the right.',
-          '<strong>Counters at the bottom</strong> — live count of active, no-rules, and incomplete Sales Team members across the whole team.'
+          '<strong>Search box</strong> — type a name to instantly filter the list.',
+          '<strong>Role filter pills</strong> (All / BDM / Telesales Mgr / Telesales / Digital Sales) — click to show only that segment of the team.',
+          '<strong>Click any name</strong> — opens that member\'s profile and all their assigned rules in the main panel.',
+          '<strong>Status counters at the bottom</strong> — live count of Active, No Rules, and Incomplete members across the whole team.',
+          '<strong>Legend</strong> — colour key for the status dots.'
         ])}
       `)}
 
       ${sec('📊','Dashboard',`
-        The home screen. Shows:
+        The home screen — shown when no team member is selected. It has five areas:
         ${ul([
-          '<strong>Stats row</strong> — total Sales Team members, with rules, need rules, incomplete profiles.',
-          '<strong>Needs Attention alert</strong> — amber section listing every Sales Team member without a rule or with an incomplete profile. Click any name to jump to their profile.',
-          '<strong>Former Sales Team members alert</strong> — red section if any rules contain Sales Team members no longer on the team. Use <strong>Replace agent</strong> to reassign.',
-          '<strong>All rules table</strong> — compact view of every rule with lead sources, operations, Sales Team count, and vertical badge.'
+          '<strong>Stats row</strong> — total team count, how many have rules, how many still need rules, and how many have incomplete profiles.',
+          '<strong>Salesforce report links (blue banner)</strong> — direct links to download the latest Sales Team and Rules data from Salesforce. Always start here before uploading.',
+          '<strong>Needs Attention (amber)</strong> — lists every member without a rule or with an incomplete profile. Click any name to jump straight to their profile.',
+          '<strong>Former Sales Team members (red)</strong> — appears when active rules contain members no longer on the team. Use the <strong>Replace agent</strong> button next to their name to reassign the slot to a current team member.',
+          '<strong>Pending changes notice (blue)</strong> — shown when you have new or modified rules waiting to be exported to Salesforce.',
+          '<strong>All rules table</strong> — compact list of every rule, showing lead sources, operations, vertical badge, and how many members are assigned.'
         ])}
       `)}
 
       ${sec('👤','Viewing and editing a Sales Team member',`
-        Click any Sales Team member to open their detail view:
+        Click any name in the sidebar to open their detail view. You will see:
         ${ul([
-          '<strong>Profile card</strong> — name, role, email, SF alias, account sources, business types.',
-          '<strong>Edit Profile</strong> button — update account sources and business types. Use this for new joiners with a red dot.',
-          '<strong>Rule cards</strong> — every rule this Sales Team member is assigned to, with full parameter details.',
-          '<strong>Edit</strong> button on a rule — opens the rule editor for that rule.',
-          '<strong>Remove</strong> button on a rule — removes this Sales Team member from the rule. The rule remains in Salesforce; delete their record there manually.',
-          '<strong>Round robin note</strong> — shown on rules with multiple Sales Team members, confirming leads are distributed evenly.'
+          '<strong>Profile card</strong> — name, role, email, SF alias, account sources, and business types.',
+          '<strong>Edit Profile button</strong> (top right of card) — update account sources and business types. Use this for new joiners who show a red dot, or if a member\'s scope changes.',
+          '<strong>Rule cards</strong> — every rule this member is currently assigned to, with all parameters displayed.',
+          '<strong>Best practice badge</strong> on each card — <span style="background:var(--color-background-success);color:var(--color-text-success);padding:1px 6px;border-radius:999px;font-size:11px;font-weight:500;">✓ Best practice</span> means the rule is correctly configured for this role. <span style="background:var(--color-background-warning);color:var(--color-text-warning);padding:1px 6px;border-radius:999px;font-size:11px;font-weight:500;">⚠ Review settings</span> means something is missing — the card will tell you exactly what.',
+          '<strong>Edit button</strong> — opens the rule editor. If the rule doesn\'t match best practice, a banner highlights the gaps with an <strong>Apply best practice</strong> button to fix everything in one click.',
+          '<strong>Remove button</strong> — removes this member from the rule. The rule stays in Salesforce; you need to delete their individual assignment record in Salesforce manually.',
+          '<strong>Round robin note</strong> — shown when multiple members share a rule, confirming leads are distributed evenly between them.'
         ])}
       `)}
 
       ${sec('➕','Creating and assigning rules',`
-        From any Sales Team member's detail view, use the two buttons top right:
-        <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">+ Assign to existing rule</div>
-            Shows all rules compatible with this Sales Team member's account sources. Click a rule to add them to it. Their row appears in the next export with blank RA/RR IDs — Salesforce creates the records on import.
+        From any Sales Team member's detail view, use the two action buttons in the top right corner:
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:13px 15px;">
+            <div style="font-weight:600;margin-bottom:5px;">+ Assign to existing rule</div>
+            Shows all current rules compatible with this member's account sources. Click any rule to add the member to it immediately. On the next export, they appear in <strong>Tab 1 — Existing Rules</strong> with their Salesforce User ID in the Recommendation Rule Agent ID column.
           </div>
-          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:4px;">+ New rule</div>
-            Opens a rule editor pre-filled with best practice defaults for this Sales Team member's role. You only need to add localities and vendor grades. The Rule Name will be blank on export — Salesforce generates it on import.
+          <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:13px 15px;">
+            <div style="font-weight:600;margin-bottom:5px;">+ New rule</div>
+            Opens a rule editor pre-filled with the best practice defaults for this member's role (lead sources, business types, operations). You only need to select the localities and vendor grades, then save. This new rule appears in <strong>Tab 2 — New Rules</strong> on the next export with a blank Rule Name — Salesforce generates the ID on import.
           </div>
         </div>
+        <div style="margin-top:12px;"><strong>Replacing a former team member in a rule:</strong> From the Dashboard, find the red <em>Former Sales Team members</em> alert. Click <strong>Replace agent</strong> next to the name and select the replacement. The former member is removed and the new one is added. After exporting and importing to Salesforce, delete the former member's Salesforce record manually.</div>
       `)}
 
       ${sec('✅','Best practice system',`
-        The Optimizer has built-in recommended settings per role. These auto-fill when you create a new rule and are checked against existing rules.
+        The app has built-in recommended settings per role. These auto-fill when you create a new rule and are continuously checked against all existing rules.
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-          <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:6px;">BDM</div>
-            <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:3px;">Lead sources: Automated LeadGen · Import · Own Research</div>
-            <div style="font-size:12px;color:var(--color-text-secondary);">Operations: AccountRecycling · LeadConversion · NewLeadConversion · OpportunityReassignment · OpportunityAutoAssignment</div>
+          <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:13px 15px;">
+            <div style="font-weight:600;margin-bottom:6px;">BDM</div>
+            <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:3px;"><strong>Lead sources:</strong> Automated LeadGen · Import · Own Research</div>
+            <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:3px;"><strong>Business types:</strong> Regular Restaurant · Home Based Kitchen · Street Food</div>
+            <div style="font-size:12px;color:var(--color-text-secondary);"><strong>Operations:</strong> AccountRecycling · LeadConversion · NewLeadConversion · OpportunityReassignment · OpportunityAutoAssignment</div>
           </div>
-          <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;">
-            <div style="font-weight:500;margin-bottom:6px;">Telesales / Telesales Mgr</div>
-            <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:3px;">Lead sources: Inbound · Self Sign Up</div>
-            <div style="font-size:12px;color:var(--color-text-secondary);">Operations: AccountRecycling · LeadConversion · NewLeadConversion · OpportunityReassignment · OpportunityAutoAssignment · OpportunityAutoAssignmentFromCase · SSUAccountAutoAssignment</div>
+          <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:13px 15px;">
+            <div style="font-weight:600;margin-bottom:6px;">Telesales / Telesales Mgr</div>
+            <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:3px;"><strong>Lead sources:</strong> Inbound · Self Sign Up</div>
+            <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:3px;"><strong>Business types:</strong> Regular Restaurant · Home Based Kitchen · Street Food</div>
+            <div style="font-size:12px;color:var(--color-text-secondary);"><strong>Operations:</strong> AccountRecycling · LeadConversion · NewLeadConversion · OpportunityReassignment · OpportunityAutoAssignment · OpportunityAutoAssignmentFromCase · SSUAccountAutoAssignment</div>
           </div>
         </div>
         <br>
-        <strong>Best practice badges on rule cards:</strong>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">
-          <div style="display:flex;align-items:center;gap:8px;"><span style="background:var(--color-background-success);color:var(--color-text-success);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;">✓ Best practice</span><span>Rule fully matches the recommended settings for this role.</span></div>
-          <div style="display:flex;align-items:center;gap:8px;"><span style="background:var(--color-background-warning);color:var(--color-text-warning);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;">⚠ Review settings</span><span>Something is missing. The card shows exactly which operations or sources are off, with a <strong>Fix now</strong> button.</span></div>
+        <strong>What the badges on rule cards mean:</strong>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+          <div style="display:flex;align-items:flex-start;gap:10px;"><span style="background:var(--color-background-success);color:var(--color-text-success);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;flex-shrink:0;">✓ Best practice</span><span>Rule fully matches recommended settings for this role. No action needed.</span></div>
+          <div style="display:flex;align-items:flex-start;gap:10px;"><span style="background:var(--color-background-warning);color:var(--color-text-warning);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;flex-shrink:0;">⚠ Review settings</span><span>One or more recommended fields are missing. The card shows exactly what's off and has a <strong>Fix now</strong> button that opens the editor.</span></div>
         </div>
         <br>
-        Inside the rule editor, the <strong>Apply best practice</strong> button fills in the recommended lead sources, business types, and operations in one click. Localities and vendor grades are left untouched.
-        ${note('ℹ Best practice only applies to BDM and Telesales roles. Digital Sales rules have no template defined.','info')}
+        Inside the rule editor, the <strong>Apply best practice</strong> button fills in all recommended lead sources, business types, and operations in one click. Localities and vendor grades are never touched — these are always set manually.
+        ${note('ℹ Best practice templates apply to BDM and Telesales roles only. Digital Sales rules have no template — configure them manually.','info')}
       `)}
 
       ${sec('💾','Data and privacy',`
         ${ul([
-          'All data is saved automatically to <strong>your browser\'s local storage</strong> — nothing is sent to any server.',
-          'Each browser and device saves independently. Chrome on your laptop is separate from Safari or a different computer.',
-          'The app URL is public — do not share it externally as it contains real staff names and emails.',
-          'Click <strong>↺</strong> to wipe everything and restore original defaults.'
+          'All data saves automatically to <strong>your browser\'s local storage</strong> — nothing is sent to any external server or third party.',
+          'Each browser and device maintains its own independent session. Chrome on your laptop is completely separate from Safari or another computer.',
+          'The app URL is public — <strong>do not share it externally</strong> as it displays real staff names, emails, and Salesforce IDs.',
+          'Click <strong>↺ Reset</strong> (top right corner) to wipe all stored data and return to the original pre-loaded defaults.'
         ])}
       `)}
 
-      <div style="text-align:center;padding:20px 0 4px;font-size:12px;color:var(--color-text-secondary);">
-        SF Recommendation Rule Optimizer · Singapore Sales Ops ⚡ · Data saves to your browser automatically
+      <div style="text-align:center;padding:24px 0 8px;font-size:12px;color:var(--color-text-secondary);">
+        SF Recommendation Rule Optimizer · Singapore Sales Ops ⚡ · All data saves to your browser automatically
       </div>
     </div>
   </div>`;
@@ -902,33 +1001,25 @@ window.updateLocField=(prefix,loc,checked)=>{if(!state.modalForm)return;const ar
 window.setAllLoc=(prefix,all)=>{if(!state.modalForm)return;state.modalForm.localities=all?[...LOCS]:[];render();};
 window.filterLoc=prefix=>{const q=document.getElementById(prefix+'LS');if(!q)return;const v=q.value.toLowerCase();document.querySelectorAll('.'+prefix+'LI').forEach(el=>{el.style.display=el.dataset.loc.toLowerCase().includes(v)?'':'none';});};
 
-window.handleRulesUpload=function(event){
+window.handleRulesUpload=async function(event){
   const file=event.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    try{
-      const newRules=parseRulesCSV(e.target.result);
-      state.rules=newRules;
-      persist();
-      showToast(`✓ Loaded ${newRules.length} rules from "${file.name}"`, 'success');
-    }catch(err){showToast('Error parsing rules CSV: '+err.message,'error');}
-  };
-  reader.readAsText(file);
+  try{
+    const text=await parseFileAsCSV(file);
+    const newRules=parseRulesCSV(text);
+    state.rules=newRules;persist();
+    showToast(`✓ Loaded ${newRules.length} rules from "${file.name}"`, 'success');
+  }catch(err){showToast('Error parsing rules file: '+err.message,'error');}
   event.target.value='';
 };
 
-window.handleAgentsUpload=function(event){
+window.handleAgentsUpload=async function(event){
   const file=event.target.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    try{
-      const newAgents=parseAgentsCSV(e.target.result);
-      state.agents=newAgents;
-      persist();
-      showToast(`✓ Loaded ${newAgents.length} Sales Team members from "${file.name}"`, 'success');
-    }catch(err){showToast('Error parsing agents CSV: '+err.message,'error');}
-  };
-  reader.readAsText(file);
+  try{
+    const text=await parseFileAsCSV(file);
+    const newAgents=parseAgentsCSV(text);
+    state.agents=newAgents;persist();
+    showToast(`✓ Loaded ${newAgents.length} Sales Team members from "${file.name}"`, 'success');
+  }catch(err){showToast('Error parsing Sales Team file: '+err.message,'error');}
   event.target.value='';
 };
 
