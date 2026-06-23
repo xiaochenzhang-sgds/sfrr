@@ -727,7 +727,7 @@ function renderModal(){
     saveBtn=`<button onclick="saveEditRule()" style="padding:7px 18px;background:${PINK};color:white;border:none;border-radius:var(--border-radius-md);font-size:13px;font-weight:500;">Save changes</button>`;
   }else if(m.type==='createRule'){
     const agent2=getAgent(state.selectedId);
-    const bp2=agent2?BEST_PRACTICES[agent2.role]:null;
+    const bp2=getBP(state.selectedId);
     title=`Create new rule for ${agent2?agent2.name:''}`;
     content=`${bp2?`<div style="background:var(--color-background-success);border:1px solid var(--color-border-success);border-radius:var(--border-radius-md);padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--color-text-success);">✓ Pre-filled with <strong>${bp2.label} best practice defaults</strong>. Adjust localities and vendor grades as needed.</div>`:`<p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:14px;">New rules export with a blank Rule Name — Salesforce generates the ID on import.</p>`}
     ${renderRuleForm(state.modalForm,'create')}`;
@@ -1074,7 +1074,7 @@ window.render=render;
 
 window.openEditRule=id=>{const r=state.rules.find(x=>x.id===id);if(!r)return;state.modal={type:'editRule',ruleId:id};state.modalForm={sources:[...r.sources],bizTypes:[...r.bizTypes],vertical:[...r.vertical],localities:[...r.localities],grades:[...r.grades],ops:[...r.ops]};render();};
 window.saveEditRule=()=>{state.rules=state.rules.map(r=>r.id===state.modal.ruleId?{...r,...state.modalForm}:r);state.modal=null;state.modalForm=null;persist();};
-window.openCreateRule=()=>{const a=getAgent(state.selectedId);const bp=a?BEST_PRACTICES[a.role]:null;state.modal={type:'createRule'};state.modalForm={sources:bp?[...bp.sources]:(a?[...a.sources]:[]),bizTypes:bp?[...bp.bizTypes]:(a?[...a.bizTypes]:[]),vertical:[],localities:[],grades:[],ops:bp?[...bp.ops]:[]};render();};
+window.openCreateRule=()=>{const a=getAgent(state.selectedId);const bp=getBP(state.selectedId);state.modal={type:'createRule'};state.modalForm={sources:bp?[...bp.sources]:(a?[...a.sources]:[]),bizTypes:bp?[...bp.bizTypes]:(a?[...a.bizTypes]:[]),vertical:[],localities:[],grades:[],ops:bp?[...bp.ops]:[]};render();};
 window.saveCreateRule=()=>{const a=getAgent(state.selectedId);if(!a)return;const nr={id:'NEW-'+Date.now(),...state.modalForm,assignments:[{agentId:a.id,agentName:a.name,raId:'',rrId:'',isNew:true}]};state.rules=[...state.rules,nr];state.modal=null;state.modalForm=null;persist();};
 window.openAddToRule=()=>{state.modal={type:'addToRule'};state.modalForm=null;render();};
 window.addToExisting=id=>{const a=getAgent(state.selectedId);if(!a)return;state.rules=state.rules.map(r=>r.id===id?{...r,assignments:[...r.assignments,{agentId:a.id,agentName:a.name,raId:'',rrId:'',isNew:true}]}:r);state.modal=null;state.modalForm=null;persist();};
